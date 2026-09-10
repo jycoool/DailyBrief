@@ -50,6 +50,9 @@ jobs:
           # LLM 金鑰（二擇一即可，程式會自動挑有值的）
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          # NVIDIA 自訂模型與 endpoint（選填；不設就用程式內建預設值）
+          NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
+          NVIDIA_BASE_URL: ${{ secrets.NVIDIA_BASE_URL }}
           # Google Drive 備份（三項都要設，否則 save_output 內的備份會優雅跳過）
           GOOGLE_DRIVE_ENABLED: "1"
           GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}

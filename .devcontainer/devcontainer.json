@@ -1,0 +1,9 @@
+{
+  "name": "agent-sandbox",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "customizations": {
+    "vscode": {
+      "extensions": ["saoudrizwan.claude-dev"]
+    }
+  }
+}

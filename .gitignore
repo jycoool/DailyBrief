@@ -1,0 +1,26 @@
+# ── 機密（絕不能 push 上 GitHub）──
+.env
+.env.*
+!.env.example
+client_secret.json
+*.secret
+*_secret.json
+
+# ── 環境 ──
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# ── 產出 / 快照 ──
+# briefs：每日會重新產生，不需進版控
+Dashboard/briefs/*.md
+Dashboard/briefs/*.html
+Dashboard/briefs/brief_latest.html
+Dashboard/snapshot.txt
+Dashboard/*.log
+# dashboard.html 是 GitHub Pages 的內容，必須進版控（由 market_monitor_pages.yml commit）
+# Dashboard/dashboard.html
+
+# ── 其他 ──
+.DS_Store

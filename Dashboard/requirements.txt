@@ -1,0 +1,17 @@
+anthropic>=0.40
+beautifulsoup4>=4.12
+python-docx>=1.1
+openai>=1.0
+
+# market_monitor 抓快照（daily_brief 的資料來源）
+yfinance>=0.2
+pandas>=2.0
+numpy>=1.24
+requests>=2.31
+# SSL 憑證兜底（GitHub 環境沒有本機 ca_bundle.pem，程式會退回 certifi）
+certifi>=2024.2.2
+
+# Google Drive 備份（drive_backup.py，選用）
+google-api-python-client>=2.0
+google-auth>=2.0
+google-auth-oauthlib>=1.0

@@ -1,0 +1,3 @@
+# 機密：OAuth client secret 與 refresh token
+.env
+client_secret.json

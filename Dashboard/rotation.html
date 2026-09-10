@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>資金輪動監控</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#14171c; color:#e6e8eb; font-family:-apple-system,
+         "Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+         margin:0; padding:24px; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .ts { color:#8a8f98; font-size:13px; margin-bottom:16px; }
+  .breadth { background:#1b1f26; border:1px solid #2a2f37; border-radius:10px;
+             padding:12px 16px; font-size:14px; margin-bottom:16px; }
+  .breadth b { color:#f0c000; }
+  .hint { color:#8a8f98; font-size:12px; }
+  table { width:100%; border-collapse:collapse; background:#1b1f26;
+          border-radius:10px; overflow:hidden; }
+  th,td { padding:11px 12px; text-align:left; font-size:14px;
+          border-bottom:1px solid #23272f; }
+  th { background:#20242c; color:#a9b0ba; font-weight:600; font-size:12px; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pair { font-weight:600; }
+  .disp { color:#8a8f98; font-size:12px; font-weight:400; }
+  .sig { padding:3px 9px; border-radius:20px; color:#111; font-weight:700;
+         font-size:12px; white-space:nowrap; }
+  .plain { color:#c3c8cf; font-size:13px; }
+  .fw { color:#7f8896; font-size:12px; }
+  .rkgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+            gap:10px; margin-top:8px; }
+  .rk { background:#1b1f26; border:1px solid #2a2f37; border-radius:10px;
+        padding:12px; }
+  .rkt { font-weight:700; font-size:15px; }
+  .rkd { color:#8a8f98; font-size:11px; min-height:28px; }
+  .rkm { font-weight:700; font-size:15px; margin-top:4px; }
+  .rkma { color:#a9b0ba; font-size:12px; }
+  h2 { font-size:15px; margin:22px 0 6px; color:#c3c8cf; }
+  .legend { background:#1b1f26; border:1px solid #2a2f37; border-radius:10px;
+            padding:14px 18px; font-size:13px; line-height:1.7; color:#c3c8cf;
+            margin-top:20px; }
+  .legend b { color:#e6e8eb; }
+  .ftight { color:#8a8f98; font-size:11px; margin-top:6px; }
+  .ftight.warn2 { color:#f0c86e; }
+  .ftwrap { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+             gap:12px; margin-top:12px; }
+  .ftbox { background:#1b1f26; border:1px solid #2a2f37; border-radius:10px;
+            padding:10px 12px; }
+  .fthead { font-weight:700; font-size:13px; color:#c3c8cf; margin-bottom:6px; }
+  .ftable { width:100%; border-collapse:collapse; background:transparent;
+             border-radius:0; }
+  .ftable th { background:transparent; color:#7f8896; font-size:11px;
+                padding:4px 6px; border-bottom:1px solid #23272f; text-align:right; }
+  .ftable th:first-child { text-align:left; }
+  .ftable td { padding:5px 6px; font-size:13px; border-bottom:1px solid #20242c; }
+  .ftable td.ft { font-weight:600; }
+  .cchip { padding:2px 7px; border-radius:12px; color:#111; font-weight:700;
+            font-size:12px; font-variant-numeric:tabular-nums; }
+  .fsub { color:#8a8f98; font-size:11px; font-weight:400; }
+  .fu { color:#7f8896; font-size:10px; margin-left:2px; }
+  .fhint { color:#7f8896; font-size:12px; margin-top:10px; line-height:1.6; }
+  .foot { color:#6b7280; font-size:12px; margin-top:16px; }
+</style></head>
+<body><div class="wrap">
+  <h1>資金輪動監控</h1>
+  <div class="ts">2026-08-30 22:00　·　RS 線＝分子／分母，上揚代表分子在贏分母</div>
+  <div class="breadth">廣度代理（watchlist 29 檔）：站上 50 日線 <b>48%</b>　·　站上 200 日線 <b>66%</b>　<span class='hint'>（&gt;60% 偏廣、健康；&lt;40% 偏窄、只剩少數在撐）</span></div>
+
+  <table>
+    <tr><th>配對</th><th>訊號</th><th>位置</th><th>20日動能</th>
+        <th>連續</th><th>白話（分子領先時）</th><th>框架</th></tr>
+    
+        <tr>
+          <td class="pair">SMH / SPY<div class="disp">晶片 vs 大盤</div></td>
+          <td><span class="sig" style="background:#8a8f98">⚪ 盤整</span></td>
+          <td class="num">＜長均</td>
+          <td class="num">-0.6%</td>
+          <td class="num">35d</td>
+          <td class="plain">半導體在領大盤（AI 交易的主心臟）</td>
+          <td class="fw">河/框架一 收錢方</td>
+        </tr>
+        <tr>
+          <td class="pair">MU / SMH<div class="disp">記憶體 vs 半導體</div></td>
+          <td><span class="sig" style="background:#2ecc71">🟢 領先↑</span></td>
+          <td class="num">＞長均</td>
+          <td class="num">+10.8%</td>
+          <td class="num">1d</td>
+          <td class="plain">記憶體在領半導體（金絲雀；最先斷的一段）</td>
+          <td class="fw">框架五 循環vs結構</td>
+        </tr>
+        <tr>
+          <td class="pair">RSP / SPY<div class="disp">等權 vs 市值權</div></td>
+          <td><span class="sig" style="background:#8a8f98">⚪ 盤整</span></td>
+          <td class="num">＞長均</td>
+          <td class="num">-0.3%</td>
+          <td class="num">49d</td>
+          <td class="plain">行情在變廣（不只靠巨頭）；下彎=集中度升高</td>
+          <td class="fw">框架七 集中度</td>
+        </tr>
+        <tr>
+          <td class="pair">XLU / SPY<div class="disp">電力/公用 vs 大盤</div></td>
+          <td><span class="sig" style="background:#e74c3c">🔴 落後↓</span></td>
+          <td class="num">＜長均</td>
+          <td class="num">-6.4%</td>
+          <td class="num">22d 🔻新低</td>
+          <td class="plain">電力這條 AI 下游被買（算力→電力二次擴散）</td>
+          <td class="fw">框架四 電力約束</td>
+        </tr>
+        <tr>
+          <td class="pair">SMH / XLU<div class="disp">算力 vs 電力</div></td>
+          <td><span class="sig" style="background:#e74c3c">🔴 落後↓</span></td>
+          <td class="num">＜長均</td>
+          <td class="num">+6.2%</td>
+          <td class="num">1d</td>
+          <td class="plain">算力層領先電力層；下彎=資金往電力搬</td>
+          <td class="fw">河 上下游</td>
+        </tr>
+        <tr>
+          <td class="pair">QQQ / IWD<div class="disp">成長 vs 價值</div></td>
+          <td><span class="sig" style="background:#8a8f98">⚪ 盤整</span></td>
+          <td class="num">＜長均</td>
+          <td class="num">+1.5%</td>
+          <td class="num">42d</td>
+          <td class="plain">成長股在領價值股（利率順風時通常如此）</td>
+          <td class="fw">框架三 折現率</td>
+        </tr>
+        <tr>
+          <td class="pair">IWM / SPY<div class="disp">小型 vs 大盤</div></td>
+          <td><span class="sig" style="background:#8a8f98">⚪ 盤整</span></td>
+          <td class="num">＜長均</td>
+          <td class="num">-1.4%</td>
+          <td class="num">21d</td>
+          <td class="plain">小型股在領（賭景氣復甦/風險偏好上升）</td>
+          <td class="fw">景氣循環</td>
+        </tr>
+        <tr>
+          <td class="pair">XLY / XLP<div class="disp">非必需 vs 必需消費</div></td>
+          <td><span class="sig" style="background:#8a8f98">⚪ 盤整</span></td>
+          <td class="num">＞長均</td>
+          <td class="num">+0.5%</td>
+          <td class="num">1d</td>
+          <td class="plain">非必需消費領先（risk-on）；下彎=轉防禦</td>
+          <td class="fw">風險胃納</td>
+        </tr>
+        <tr>
+          <td class="pair">SMH / QQQ<div class="disp">晶片 vs 科技整體</div></td>
+          <td><span class="sig" style="background:#8a8f98">⚪ 盤整</span></td>
+          <td class="num">＜長均</td>
+          <td class="num">-1.7%</td>
+          <td class="num">26d</td>
+          <td class="plain">晶片在領廣義科技（軟體/巨頭相對被冷落）</td>
+          <td class="fw">河 收錢方vs科技</td>
+        </tr>
+  </table>
+
+  <h2>避險腿（regime 溫度計）</h2>
+  <div class="rkgrid">
+        <div class="rk">
+          <div class="rkt">TMF</div>
+          <div class="rkd">20年+美債 3x（長端利率賭注）</div>
+          <div class="rkm" style="color:#2ecc71">▲ +2.4%</div>
+          <div class="rkma">在50日下</div>
+        </div>
+        <div class="rk">
+          <div class="rkt">GLDM</div>
+          <div class="rkd">黃金</div>
+          <div class="rkm" style="color:#2ecc71">▲ +10.1%</div>
+          <div class="rkma">站上50日</div>
+        </div>
+        <div class="rk">
+          <div class="rkt">SGOV</div>
+          <div class="rkd">0-3月美債（現金停泊）</div>
+          <div class="rkm" style="color:#2ecc71">▲ +0.3%</div>
+          <div class="rkma">站上50日</div>
+        </div>
+        <div class="rk">
+          <div class="rkt">^VIX</div>
+          <div class="rkd">VIX 波動率</div>
+          <div class="rkm" style="color:#e74c3c">▼ -9.8%</div>
+          <div class="rkma">在50日下</div>
+        </div></div>
+
+  <h2>因子暴露地圖（框架七·反假分散）</h2><div class="rkgrid"><div class="rk"><div class="rkt">利率 30Y</div><div class="rkd">驅動 ^TYX·利率賭注（殖利率漲它跌）</div><div class="rkm" style="color:#f0c000;font-size:13px;line-height:1.35">🟡 1 檔強曝險，未達假分散門檻（≥3）</div></div><div class="rk"><div class="rkt">AI-beta</div><div class="rkd">驅動 SMH·跟 AI 情緒同生共死</div><div class="rkm" style="color:#e74c3c;font-size:13px;line-height:1.35">🔴 12 檔 |corr|>0.6 → 你的真實曝險是「AI-beta」，不是這些公司</div></div><div class="rk"><div class="rkt">美元 DXY</div><div class="rkd">驅動 DX-Y.NYB·被強美元侵蝕（跨境部位）</div><div class="rkm" style="color:#8a8f98;font-size:13px;line-height:1.35">⚪ 無顯著「美元 DXY」曝險</div></div></div><div class="ftwrap"><div class="ftbox"><div class="fthead">利率 30Y<span class="fsub">　corr 越負＝越受此因子傷害；排序：最負在上</span></div><table class="ftable"><tr><th>代號</th><th>corr 60d</th><th>corr 20d</th><th>beta</th></tr><tr><td class="ft">TMF</td><td class="num"><span class="cchip" style="background:#e74c3c">-0.92</span></td><td class="num fsub">-0.97</td><td class="num">-4.61<span class="fu">%/10bp</span></td></tr></table></div><div class="ftbox"><div class="fthead">AI-beta<span class="fsub">　corr 越負＝越受此因子傷害；排序：最負在上</span></div><table class="ftable"><tr><th>代號</th><th>corr 60d</th><th>corr 20d</th><th>beta</th></tr><tr><td class="ft">UVXY</td><td class="num"><span class="cchip" style="background:#e74c3c">-0.65</span></td><td class="num fsub">-0.14</td><td class="num">-0.86<span class="fu">×</span></td></tr><tr><td class="ft">T</td><td class="num"><span class="cchip" style="background:#f0c000">-0.40</span></td><td class="num fsub">-0.52</td><td class="num">-0.23<span class="fu">×</span></td></tr><tr><td class="ft">SIL</td><td class="num"><span class="cchip" style="background:#f0c000">+0.49</span></td><td class="num fsub">+0.29</td><td class="num">+0.51<span class="fu">×</span></td></tr><tr><td class="ft">BWXT</td><td class="num"><span class="cchip" style="background:#f0c000">+0.57</span></td><td class="num fsub">+0.52</td><td class="num">+0.44<span class="fu">×</span></td></tr><tr><td class="ft">TSLA</td><td class="num"><span class="cchip" style="background:#f0c000">+0.58</span></td><td class="num fsub">+0.31</td><td class="num">+0.61<span class="fu">×</span></td></tr><tr><td class="ft">CQQQ</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.64</span></td><td class="num fsub">+0.70</td><td class="num">+0.41<span class="fu">×</span></td></tr><tr><td class="ft">GEV</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.70</span></td><td class="num fsub">+0.60</td><td class="num">+0.75<span class="fu">×</span></td></tr><tr><td class="ft">CNYA</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.71</span></td><td class="num fsub">+0.62</td><td class="num">+0.33<span class="fu">×</span></td></tr><tr><td class="ft">NVDA</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.71</span></td><td class="num fsub">+0.74</td><td class="num">+0.57<span class="fu">×</span></td></tr><tr><td class="ft">AVGO</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.72</span></td><td class="num fsub">+0.72</td><td class="num">+0.72<span class="fu">×</span></td></tr><tr><td class="ft">SPY</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.76</span></td><td class="num fsub">+0.66</td><td class="num">+0.20<span class="fu">×</span></td></tr><tr><td class="ft">MU</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.87</span></td><td class="num fsub">+0.75</td><td class="num">+1.68<span class="fu">×</span></td></tr><tr><td class="ft">MRVL</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.88</span></td><td class="num fsub">+0.71</td><td class="num">+1.68<span class="fu">×</span></td></tr><tr><td class="ft">TSM</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.89</span></td><td class="num fsub">+0.90</td><td class="num">+0.80<span class="fu">×</span></td></tr><tr><td class="ft">INTC</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.92</span></td><td class="num fsub">+0.92</td><td class="num">+1.42<span class="fu">×</span></td></tr><tr><td class="ft">QQQ</td><td class="num"><span class="cchip" style="background:#e74c3c">+0.93</span></td><td class="num fsub">+0.85</td><td class="num">+0.45<span class="fu">×</span></td></tr></table></div><div class="ftbox"><div class="fthead">美元 DXY<span class="fsub">　corr 越負＝越受此因子傷害；排序：最負在上</span></div><table class="ftable"><tr><th>代號</th><th>corr 60d</th><th>corr 20d</th><th>beta</th></tr><tr><td class="ft">SIL</td><td class="num"><span class="cchip" style="background:#f0c000">-0.59</span></td><td class="num fsub">-0.75</td><td class="num">-6.97<span class="fu">×</span></td></tr><tr><td class="ft">GLDM</td><td class="num"><span class="cchip" style="background:#f0c000">-0.56</span></td><td class="num fsub">-0.71</td><td class="num">-3.23<span class="fu">×</span></td></tr></table></div></div><div class="fhint">corr＝個股日報酬 vs 因子移動的相關性（可靠度，−1~+1）；beta＝敏感度（30Y 為 %/10bp、其餘為每 1% 的倍數）。　|corr|&gt;0.6 標紅＝強曝險；同因子 ≥3 檔即亮假分散紅旗。　只列 |corr60|≥0.4 的有效曝險。</div>
+
+  <div class="legend">
+    <b>怎麼判讀</b><br>
+    · <b>🟢 領先↑</b>：分子站上長均線且 20 日動能 &gt; +2%，這個方向的輪動正在進行。<br>
+    · <b>🔴 落後↓</b>：分子跌破長均線且動能 &lt; −2%，分子正被輪出。<br>
+    · <b>🟡 剛翻多／翻空</b>：近 5 日內 RS 線穿越長均線 —— <b>領導權換號，最該注意</b>，
+       但需配合廣度與連續天數確認，別被單日雜訊騙。<br>
+    · <b>⚪ 盤整</b>：無明確方向。<br><br>
+    <b>三步確認一次真輪動</b>：①訊號燈翻號 → ②連續天數開始累積（&ge;3d）
+       → ③廣度同向（變廣配 risk-on、變窄配 risk-off）。三者齊備才動作。<br><br>
+    <b>對持股的意義</b>：SMH/SPY 是你組合主心臟；MU/SMH 是記憶體金絲雀（最先斷）；
+       RSP/SPY 上彎代表你被迫承擔的巨頭集中度在下降。避險腿在「科技下跌日」
+       同步走強＝資金在換防禦，是最重要的 regime 轉折訊號。
+  </div>
+  <div class="foot">資料 yfinance（約 15 分延遲）·　皆為觀察門檻，非投資建議。</div>
+</div></body></html>

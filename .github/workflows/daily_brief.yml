@@ -1,0 +1,67 @@
+name: daily_brief
+
+# ── 觸發方式 ────────────────────────────────────────────────
+# 1. schedule：每天自動（UTC 時間）
+#    盤前 8:30 ET = 12:30 UTC（夏令）/ 13:30 UTC（冬令）
+#    盤後 4:30 ET = 20:30 UTC（夏令）/ 21:30 UTC（冬令）
+#    註：GitHub cron 用 UTC 且不自動處理美國日光節約，換季需手動 ±1 小時。
+# 2. workflow_dispatch：手動按鈕觸發（GitHub 網頁 Actions 頁面）方便測試。
+on:
+  schedule:
+    - cron: "30 12 * * 1-5"   # 盤前（夏令時間；冬令改 "30 13 * * 1-5"）
+    - cron: "30 20 * * 1-5"   # 盤後（夏令時間；冬令改 "30 21 * * 1-5"）
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dashboard
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝依賴
+        run: pip install -r requirements.txt
+
+      - name: 決定模式（盤前 / 盤後）
+        id: mode
+        run: |
+          # UTC 小時 < 16 視為盤前（美股開盤前），其餘視為盤後
+          H=$(date -u +%H)
+          if [ "$H" -lt 16 ]; then
+            echo "mode=premarket" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=afterclose" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 產出每日初判（含 Drive 備份）
+        run: python daily_brief.py --mode ${{ steps.mode.outputs.mode }}
+        env:
+          # LLM 金鑰（二擇一即可，程式會自動挑有值的）
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          # Google Drive 備份（三項都要設，否則 save_output 內的備份會優雅跳過）
+          GOOGLE_DRIVE_ENABLED: "1"
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_FOLDER_NAME: "每日初判"
+
+      # 產出上傳成 artifact，即使 Drive 失敗也能在 GitHub 撈回檔案
+      - name: 上傳產出（artifact）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: brief-${{ steps.mode.outputs.mode }}-${{ github.run_id }}
+          path: Dashboard/briefs/
+          retention-days: 14

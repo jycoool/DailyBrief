@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────
+# 我的觀察清單
+# 從 stockanalysis.com 複製代號後，一行貼一個
+# 存檔時把檔名改成 watchlist.txt（去掉 .example）
+# ─────────────────────────────────────────────
+
+# 只有代號（名稱自動用代號）
+UVXY
+UNG
+TMF
+GLDM
+SIL
+SPY
+SGOV
+QQQ
+CQQQ
+CNYA
+BRK-B
+T
+WMT
+LULU
+GEV
+BWXT
+AAPL
+GOOGL
+MSFT
+TSLA
+SPCX
+TSM
+INTC
+NVDA
+AVGO
+MU
+SKHY
+MRVL
+ET
+SNOW
+
+# 代號 + 自訂名稱（逗號分隔）
+
+# 代號 + 名稱（空白分隔也可以）
+
+
+# 井字號開頭是註解，會被忽略
+# 含點的代號沒問題：
+

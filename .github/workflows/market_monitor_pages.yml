@@ -1,0 +1,51 @@
+name: market_monitor_pages
+
+# ── 定期重產 dashboard.html 並 commit，讓 GitHub Pages 隨時看得到儀表板 ──
+# 原理：market_monitor_web.py 抓 yfinance 資料 → 寫出 self-contained 的 dashboard.html
+#       → 自動 commit 回 main → GitHub Pages 用公網網址呈現。你不需要本機開機。
+on:
+  schedule:
+    # 每 30 分鐘（美股開盤期間）重產一次。cron 為 UTC：
+    #   美東 09:30 ~ 16:00 (= 13:30~20:00 UTC 夏令 / 14:30~21:00 UTC 冬令)
+    #   想更密集可改，但注意免費額度與 yfinance 15 分鐘延遲，30 分鐘已足夠。
+    - cron: "*/30 13-20 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # 需要 push 回 repo（commit dashboard.html）
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dashboard
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝依賴
+        run: pip install -r requirements.txt
+
+      - name: 重產儀表板 HTML（單次、不開瀏覽器）
+        run: python market_monitor_web.py --no-open --out dashboard.html
+        env:
+          # GitHub 乾淨環境沒有本機 ca_bundle.pem，讓程式退回 certifi
+          PYTHONUNBUFFERED: "1"
+
+      - name: 若 HTML 有變動就 commit 回 main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dashboard.html
+          if git diff --cached --quiet; then
+            echo "儀表板沒有變動，跳過 commit。"
+          else
+            git commit -m "chore: 更新市場儀表板 $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push
+          fi

@@ -10,6 +10,8 @@ numpy>=1.24
 requests>=2.31
 # SSL 憑證兜底（GitHub 環境沒有本機 ca_bundle.pem，程式會退回 certifi）
 certifi>=2024.2.2
+# 時區資料（_now_et() 用 zoneinfo 換算美東時間，無此套件時 zoneinfo 會靜默回退到本地時區）
+tzdata>=2024.1
 
 # Google Drive 備份（drive_backup.py，選用）
 google-api-python-client>=2.0

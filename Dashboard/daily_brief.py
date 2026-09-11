@@ -73,8 +73,7 @@ FRAMEWORK_FILES = [
 ]
 # 關鍵追蹤日期（過期自動略過）
 KEY_DATES = [
-    ("2026-09-09", "iPhone 18 秋季發表會定價驗證"),
-    ("2026-09-16", "FOMC 會議 + 點陣圖（9 月鷹派維持不變待驗）"),
+    ("2026-09-16", "FOMC 會議 + 點陣圖（升息本身已消化，重點看點陣圖未來路徑訊號）"),
 ]
 # 持續追蹤的結構性主題
 STANDING_THEMES = [
@@ -83,6 +82,9 @@ STANDING_THEMES = [
     "記憶體循環見頂觀察（MU/SKHY 高殖利率是週期高點陷阱）",
     "市場廣度：高度集中、AI 主導的狹窄領導結構",
     "折現率壓力 vs 盈餘殖利率（30Y 5.27% 這把尺）",
+    "中東雙海峽瓶頸（荷莫茲海峽 + 葉門紅海港口/勝利港被占）→ 油價/柴油尾部風險",
+    "Oracle 收入證明門檻通過 vs CapEx 三倍燒錢疑慮（框架一付錢方驗證）",
+    "Apple 摺疊機 Duo 作為毛利率緩衝的策略能否兌現（下次財報見真章）",
 ]
 # ── 收盤分析（web search 原因）設定 ──────────────────────────
 # 自動對「今日變動最大的前 N 檔」查 Yahoo Finance 新聞，補足「為什麼」。
@@ -99,11 +101,14 @@ TICKER_NOTES = {
     "MU": "記憶體循環高點；盈餘殖利率是週期陷阱；上行第二階導數已放緩",
     "SKHY": "HBM 市占稀釋但仍龍頭；HBM4 拿 2/3 份額；盈餘殖利率 21% 非週期常態",
     "MRVL": "Google 訂單兌現推到 2029；毛利率結構偏低；84x 本益比待消化",
-    "AVGO": "客製晶片變現速度是關鍵；9/2 財報為分水嶺；9/3 放量 -1.94% 分水嶺偏空（收入證明未過門檻）",
-    "AAPL": "iPhone 18 漲價不可避免；9/9 發表會是敘事兌現點",
+    "AVGO": "客製晶片變現速度是關鍵；護城河裂縫（Google 分散單到 Marvell）未癒合，反彈不能算數，需重拿訂單能見度",
+    "AAPL": "iPhone 18 Pro/ProMax 只漲 $100（Gurman 下緣）；摺疊 Duo $1999-3199 當毛利率緩衝；毛利率 47-48% 待財報驗證",
+    "ORCL": "OCI 營收翻倍、現金流 +184%（收入證明門檻通過）；但 CapEx 85→285 億燒錢疑慮未解",
+    "MSFT": "Azure backlog 強但現金流/資產負債表是第二關；Magnificent Seven 之一",
+    "GOOGL": "Alphabet 2,050 億對應營收說不清（7 月被打）；AI 算力收錢方",
     "TSLA": "純敘事驅動；Cybercab 9/3；盈餘殖利率 0.61% 最極端",
     "INTC": "增發稀釋從 150 億上調 200 億；年線乖離極大",
-    "TMF": "3 倍槓桿結構耗損；9/16 FOMC 分水嶺",
+    "TMF": "3 倍槓桿結構耗損；殖利率回落 vs 升息機率九成兩股拔河，勿當趨勢確立",
     "TSM": "台積電 ADR；AI 算力鏈「立即落地出貨」端",
 }
 # ─────────────────────────────────────────────────────────────
@@ -362,7 +367,7 @@ def build_prompt(mode, snapshot):
 def save_output(mode, text):
     """存成 briefs/每日初判_*.md，並呼叫 open_brief.py 產生 HTML。"""
     os.makedirs(_BRIEFS, exist_ok=True)
-    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    ts = _now_et().strftime("%Y-%m-%d_%H%M")
     tag = "盤後" if mode == "afterclose" else "盤前"
     fname = f"每日初判_{tag}_{ts}.md"
     path = os.path.join(_BRIEFS, fname)
@@ -406,7 +411,7 @@ def local_draft(mode, snapshot):
     """本地（無 API key）的結構化草稿：把資料攤開＋附上防幻覺錨點。"""
     head = (
         f"# 每日市場初判（{'盤後' if mode == 'afterclose' else '盤前'}）\n\n"
-        f"產生時間：{datetime.now():%Y-%m-%d %H:%M}｜引擎：{active_engine()}（無 API key，待精修）\n\n"
+        f"產生時間：{_now_et():%Y-%m-%d %H:%M} ET｜引擎：{active_engine()}（本地草稿模式，待精修）\n\n"
         f"---\n\n"
     )
     themes = "\n".join(f"- {t}" for t in STANDING_THEMES)
@@ -455,6 +460,7 @@ def api_generate(system, user):
         except ImportError:
             print("  （想走 NVIDIA，但 openai 套件未裝 → 退回 Anthropic）")
         else:
+            global _ACTUAL_ENGINE
             try:
                 client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=nvidia_key)
                 messages = [{"role": "system", "content": system},
@@ -465,10 +471,12 @@ def api_generate(system, user):
                     max_tokens=4000,
                     temperature=0,
                 )
+                _ACTUAL_ENGINE = f"nvidia／{NVIDIA_MODEL}"
                 return resp.choices[0].message.content
             except Exception as e:
-                print(f"  [NVIDIA 呼叫失敗] {type(e).__name__}: {str(e)[:200]}")
-                print("  → 退回 Anthropic（若無 ANTHROPIC_API_KEY 則走本地）")
+                print(f"  [NVIDIA 呼叫失敗] {type(e).__name__}: {str(e)[:400]}")
+                print(f"    模型：{NVIDIA_MODEL}｜base_url：{NVIDIA_BASE_URL}")
+                print("  → 退回 Anthropic（若無 ANTHROPIC_API_KEY 則走本地草稿）")
                 # 不 return，往下走 Anthropic 嘗試
 
     # ── 2. Anthropic（original path） ──────────────────────
@@ -486,11 +494,22 @@ def api_generate(system, user):
         system=system,
         messages=[{"role": "user", "content": user}],
     )
+    _ACTUAL_ENGINE = f"anthropic／{MODEL}"
     return "".join(b.text for b in resp.content if getattr(b, "text", None))
 
 
+# 記錄「實際成功」的引擎（api_generate 成功後寫入，供報告標頭反映真相）
+# 避免標頭宣稱 nvidia/... 但實際上早已降級到本地草稿的混淆。
+_ACTUAL_ENGINE = None
+
+
 def active_engine():
-    """回傳目前會用哪個引擎（供報告標頭顯示）。"""
+    """回傳『實際使用』的引擎（成功呼叫過才算），供報告標頭顯示。
+
+    若 api_generate 尚未成功過，退回用環境變數推測（方便本地除錯）。
+    """
+    if _ACTUAL_ENGINE:
+        return _ACTUAL_ENGINE
     if os.environ.get("NVIDIA_API_KEY"):
         return f"nvidia／{NVIDIA_MODEL}"
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -499,11 +518,22 @@ def active_engine():
 
 
 def _now_et():
-    """回傳美東時間（含 DST 自動調整）。用 zoneinfo，零新套件。"""
+    """回傳美東時間（含 DST 自動調整）。用 zoneinfo，零新套件。
+
+    注意：zoneinfo 需要 tzdata 套件提供時區資料（GitHub ubuntu-latest 內建、
+    requirements.txt 也已納入 tzdata）。若 tzdata 缺失，zoneinfo 不會報錯、
+    只會靜默套用 0 偏移（= 本地時區），導致時間標錯；此處主動偵測並改回 UTC
+    且列印警告，避免默默產出錯誤時間戳。
+    """
     try:
+        import zoneinfo
+        if not zoneinfo.available_timezones():
+            raise RuntimeError("zoneinfo 沒有可用的時區資料（缺 tzdata）")
         from zoneinfo import ZoneInfo
         return datetime.now(ZoneInfo("America/New_York"))
-    except Exception:
+    except Exception as e:
+        print(f"  [時區警告] 無法取得美東時間（{e}），改用系統時間（可能是 UTC）。")
+        print("           → 請確認已 pip install tzdata（已加入 requirements.txt）。")
         return datetime.now()
 
 
@@ -542,6 +572,8 @@ def schedule_loop(mode, at_hour=20, at_minute=0):
             system, user = build_prompt(mode, snap)
             text = api_generate(system, user)
             if text is None:
+                global _ACTUAL_ENGINE
+                _ACTUAL_ENGINE = "local-draft"
                 text = local_draft(mode, snap)
             save_output(mode, text.strip() + "\n")
             # 嘗試把新觀點 merge 進 knowledge（見下方函式）
@@ -641,7 +673,9 @@ def main():
     print("  [2/3] 呼叫模型生成初判...")
     text = api_generate(system, user)
     if text is None:
-        print("  （無 NVIDIA_API_KEY / ANTHROPIC_API_KEY 或對應套件未裝）→ 改用本地草稿模式")
+        print("  （無 NVIDIA_API_KEY / ANTHROPIC_API_KEY，或呼叫失敗）→ 改用本地草稿模式")
+        global _ACTUAL_ENGINE
+        _ACTUAL_ENGINE = "local-draft"
         text = local_draft(args.mode, snap)
 
     print("  [3/3] 存檔...")

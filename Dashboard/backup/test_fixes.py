@@ -217,8 +217,10 @@ check("TMF 保留技術訊號（槓桿商品短線仍有意義）", "TMF" in tit
 check("TMF 技術訊號附槓桿提醒", "槓桿商品" in msgs)
 check("MU 觸發循環頂點嫌疑", "⚑ MU" in titles)
 check("INTC 保留乖離偏大", "INTC 乖離偏大" in titles)
-check("BWXT 保留跌破年線", "BWXT 跌破年線" in titles)
-check("TSLA 保留跌破年線", "TSLA 跌破年線" in titles)
+check("BWXT 觸發估值陷阱（跌破年線+殖利率倒掛升級為複合訊號）",
+      "★ BWXT 估值陷阱" in titles)
+check("TSLA 觸發估值陷阱（跌破年線+殖利率倒掛升級為複合訊號）",
+      "★ TSLA 估值陷阱" in titles)
 check("VIX 14.25 現在會觸發（門檻已調到 15.0）", "VIX 14.25" in titles)
 check("JPY 159.27 未誤觸干預警示（門檻 160）", "美元/日圓" not in titles)
 

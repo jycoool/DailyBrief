@@ -1,0 +1,70 @@
+name: weekly_brief
+
+# ── 觸發方式 ────────────────────────────────────────────────
+# 1. schedule：每週日下午自動（UTC）
+#    週日 15:00 ET（夏令）= 19:00 UTC → "0 19 * * 0"
+#    冬令（EST）請改 "0 20 * * 0"。GitHub cron 不自動處理日光節約。
+# 2. workflow_dispatch：手動按鈕觸發，方便測試。
+on:
+  schedule:
+    - cron: "0 19 * * 0"   # 每週日 15:00 ET（夏令；冬令改 "0 20 * * 0"）
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # 週報成品要 commit 回 repo
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dashboard
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝依賴
+        run: pip install -r requirements.txt
+
+      - name: 檢查本週每日初判是否齊全
+        run: ls Dashboard/briefs/ || true
+
+      - name: 產出每週週報（含 Drive 備份）
+        run: python weekly_brief.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_MODEL: ${{ secrets.NVIDIA_MODEL }}
+          NVIDIA_BASE_URL: ${{ secrets.NVIDIA_BASE_URL }}
+          GOOGLE_DRIVE_ENABLED: "1"
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_FOLDER_NAME: "每週週報"
+
+      - name: 上傳產出（artifact）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-brief-${{ github.run_id }}
+          path: |
+            Dashboard/briefs/週報_*
+            Dashboard/knowledge_updates_log.md
+          retention-days: 30
+
+      # 週報成品與更新建議 commit 回 repo，之後 git pull 就拿到
+      - name: 回存週報到 repo
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "Dashboard/briefs/週報_*" Dashboard/knowledge_updates_log.md 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: 每週週報 $(date -u +%F) [skip ci]"
+            git push
+          fi

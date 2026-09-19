@@ -61,8 +61,9 @@ except Exception:
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 # NVIDIA NIM（OpenAI 相容介面）設定
+# 2026-09-14：舊的 deepseek-v4-pro 已停用，改用 flash 版 model ID。
 NVIDIA_MODEL = os.environ.get(
-    "NVIDIA_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1")
+    "NVIDIA_MODEL", "deepseek-ai/deepseek-v4-flash-0731")
 NVIDIA_BASE_URL = os.environ.get(
     "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 # 分析框架檔：換版本/加檔案就在這裡改
@@ -470,6 +471,8 @@ def api_generate(system, user):
                     messages=messages,
                     max_tokens=4000,
                     temperature=0,
+                    stream=False,  # 刻意不用串流，避免 NVIDIA 端點中斷造成
+                    # "Response stream ended without a finish reason"
                 )
                 _ACTUAL_ENGINE = f"nvidia／{NVIDIA_MODEL}"
                 return resp.choices[0].message.content

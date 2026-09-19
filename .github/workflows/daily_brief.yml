@@ -13,7 +13,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write   # 需要寫入權限，把當日初判 commit 回 repo 供週報彙整
 
 jobs:
   brief:
@@ -68,3 +68,15 @@ jobs:
           name: brief-${{ steps.mode.outputs.mode }}-${{ github.run_id }}
           path: Dashboard/briefs/
           retention-days: 14
+
+      # 把當日初判 commit 回 repo：週報引擎（weekly_brief.py）靠 briefs/*.md 彙整全週
+      - name: 回存當日初判到 repo
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Dashboard/briefs/*.md Dashboard/knowledge_slim.md || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: 每日初判 $(date -u +%F) [skip ci]"
+            git push
+          fi

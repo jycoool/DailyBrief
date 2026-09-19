@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把 9/4 深挖版初判渲染成獨立 HTML（自帶樣式，可離線開啟）。"""
+"""通用版：把任意一份初判/精修 Markdown 渲染成獨立 HTML（自帶樣式，可離線開啟）。
 
+用法：
+    python render_deep_brief.py                          # 預設：渲染資料夾內最新的 *精修版*.md
+    python render_deep_brief.py <某份.md>                # 指定 Markdown 檔
+    python render_deep_brief.py <某份.md> -o 輸出.html   # 指定輸出檔名
+    python render_deep_brief.py --legacy                 # 使用內嵌的 2026-09-04 深度分析（舊版行為）
+    python render_deep_brief.py --title 自訂標題         # 覆寫 <title> 與 meta 標籤
+
+說明：
+    - 輸出檔名預設為「<輸入檔名去副檔名>.html」，與輸入檔同目錄。
+    - 標題預設取 Markdown 第一個 `# ` 標題；抓不到就用檔名。
+    - 渲染依賴 marked.js（CDN）；CDN 失敗時會退化為 <pre> 純文字，仍可離線閱讀。
+"""
+
+import argparse
+import glob
 import json
 import os
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
-MD = r"""# 每日市場初判（盤後）深度分析 — 2026-09-04
+LEGACY_MD = r"""# 每日市場初判（盤後）深度分析 — 2026-09-04
 
 ## 一、今天盤面真正發生的事：記憶體獨自噴發、其餘全線失血
 
@@ -151,7 +166,7 @@ TEMPLATE = """<!DOCTYPE html>
 <html lang="zh-Hant"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>每日市場初判_盤後_2026-09-04_深度分析</title>
+<title>__TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -184,7 +199,7 @@ hr{border:0;border-top:1px solid var(--rule);margin:30px 0}
 </style>
 </head><body>
 <div class="wrap">
-  <div class="meta"><span>每日初判_盤後_2026-09-04.md</span><span>深度分析（精修版）</span></div>
+  <div class="meta"><span>__SRC__</span><span>__TAG__</span></div>
   <div id="content">載入中…</div>
   <div class="footnote">非投資建議，僅為個人研究與分析紀錄。</div>
 </div>
@@ -199,13 +214,65 @@ document.getElementById('content').innerHTML =
 </body></html>"""
 
 
-def main():
-    out = os.path.join(_HERE, "每日初判_盤後_2026-09-04_深度分析.html")
-    html = TEMPLATE.replace("__MD__", json.dumps(MD, ensure_ascii=False))
-    with open(out, "w", encoding="utf-8") as f:
+def extract_title(md_text: str, fallback: str) -> str:
+    """取 Markdown 第一個 `# ` 標題當 HTML 標題。"""
+    for line in md_text.splitlines():
+        line = line.strip()
+        if line.startswith("# ") and not line.startswith("## "):
+            return line[2:].strip()
+    return fallback
+
+
+def find_latest_refined() -> str | None:
+    """在腳本同目錄找最新的 *精修版*.md；沒有就找最新的 .md。"""
+    refined = sorted(glob.glob(os.path.join(_HERE, "*精修版*.md")))
+    if refined:
+        return refined[-1]
+    mds = sorted(glob.glob(os.path.join(_HERE, "*.md")))
+    return mds[-1] if mds else None
+
+
+def render(md_text: str, out_path: str, title: str, src_label: str, tag: str) -> None:
+    html = (TEMPLATE
+            .replace("__MD__", json.dumps(md_text, ensure_ascii=False))
+            .replace("__TITLE__", title)
+            .replace("__SRC__", src_label)
+            .replace("__TAG__", tag))
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"已產生：{out}")
-    print(f"大小：{os.path.getsize(out)} bytes")
+    print(f"已產生：{out_path}")
+    print(f"大小：{os.path.getsize(out_path)} bytes")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="把初判/精修 Markdown 渲染成獨立 HTML")
+    ap.add_argument("md", nargs="?", help="輸入的 Markdown 檔（預設：資料夾內最新的精修版）")
+    ap.add_argument("-o", "--out", help="輸出 HTML 檔名（預設：與輸入同名 .html）")
+    ap.add_argument("--title", help="覆寫 HTML 標題")
+    ap.add_argument("--tag", default="深度分析（精修版）",
+                    help="右上角 meta 標籤（預設：深度分析（精修版））")
+    ap.add_argument("--legacy", action="store_true",
+                    help="使用內嵌的 2026-09-04 深度分析（舊版行為）")
+    args = ap.parse_args()
+
+    if args.legacy:
+        md_text = LEGACY_MD
+        src_label = "每日初判_盤後_2026-09-04.md"
+        out = args.out or os.path.join(_HERE, "每日初判_盤後_2026-09-04_深度分析.html")
+        title = args.title or "每日市場初判_盤後_2026-09-04_深度分析"
+    else:
+        md_path = args.md or find_latest_refined()
+        if not md_path:
+            raise SystemExit("找不到任何 .md；請指定輸入檔，或用 --legacy 渲染內嵌範例。")
+        md_path = os.path.abspath(md_path)
+        with open(md_path, encoding="utf-8") as f:
+            md_text = f.read()
+        stem = os.path.splitext(os.path.basename(md_path))[0]
+        src_label = os.path.basename(md_path)
+        out = args.out or os.path.join(os.path.dirname(md_path), stem + ".html")
+        title = args.title or extract_title(md_text, stem)
+
+    render(md_text, out, title, src_label, args.tag)
 
 
 if __name__ == "__main__":

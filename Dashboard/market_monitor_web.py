@@ -16,9 +16,8 @@ market_monitor_web.py — 市場監控儀表板（網頁版）
     python market_monitor_web.py --fast     跳過本益比抓取（較快）
 
 注意:
-  - 資料來源 yfinance，約 15 分鐘延遲
+  - 資料來源 直連 Yahoo v8 chart API（免 yfinance 報價端點，避免其 401 卡死），約 15 分鐘延遲
   - 警示為觀察門檻，非買賣訊號
-  - 相容 yfinance 0.2.x 與 1.5.x
 """
 
 import argparse
@@ -26,6 +25,7 @@ import os
 import sys
 import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 # ── SSL 憑證設定 ──────────────────────────────────────────────
@@ -49,6 +49,7 @@ if _CA:
 try:
     import yfinance as yf
     import pandas as pd
+    import requests
 except ImportError:
     sys.exit("請先安裝套件:  pip install yfinance pandas requests")
 
@@ -178,6 +179,9 @@ ALERTS = {
     # 這不是價值訊號，是 E 即將反轉的訊號。
     "cyclical_pe":   10.0,   # trailing PE 低於此
     "cyclical_dev":  40.0,   # 且高於年線此幅度 → 觸發
+    # ── 自重線（估值）維度：盈餘殖利率 vs 30Y 公債殖利率 ──
+    # 盈餘殖利率 < 自重線 → 風險/報酬倒掛（承擔股票風險卻賺輸無風險公債）。
+    "valuation_trap_gap":   2.0,   # 殖利率比自重線低達此 pp → 估值陷阱（嚴重倒掛）
 }
 
 # ── 現金／超短債型 ETF ────────────────────────────────────────
@@ -273,6 +277,37 @@ def _stochastic(high, low, close, k_period=14, d_period=3, smooth=3):
     }
 
 
+def _volume(df, window=20):
+    """
+    成交量異常分析。回傳 dict:
+      ratio     — 當日量 / 過去 window 日均量（不含當日）
+      rvol      — 相對成交量百分比（ratio × 100，習慣講法）
+      avg       — 均量
+      today     — 當日量
+      price_chg — 當日漲跌%（用於判斷爆量的方向）
+    資料不足或無 Volume 欄時回 None。
+    """
+    if "Volume" not in df:
+        return None
+    vol = df["Volume"].dropna()
+    close = df["Close"].dropna()
+    if len(vol) < window + 1 or len(close) < 2:
+        return None
+    today = float(vol.iloc[-1])
+    avg = float(vol.iloc[-(window + 1):-1].mean())   # 排除當日，避免自我稀釋
+    if avg <= 0:
+        return None
+    ratio = today / avg
+    price_chg = (float(close.iloc[-1]) - float(close.iloc[-2])) / float(close.iloc[-2]) * 100
+    return {
+        "ratio": ratio,
+        "rvol": ratio * 100,
+        "avg": avg,
+        "today": today,
+        "price_chg": price_chg,
+    }
+
+
 def compute_technicals(df):
     """從 OHLC DataFrame 算出所有技術指標與訊號旗標。"""
     close = df["Close"].dropna()
@@ -283,8 +318,31 @@ def compute_technicals(df):
     rsi63 = _rsi(close, 63)                        # 中期（約一季）
     macd = _macd(close)
     stoch = _stochastic(high, low, close)
+    vol = _volume(df)
 
     signals = []
+
+    # ── 成交量異常（注意力指標）──
+    # 量本身沒方向，配合當日漲跌判斷「資金流入」還是「流出」
+    if vol:
+        r = vol["ratio"]
+        pc = vol["price_chg"]
+        if r >= 3.0:
+            # 爆量（3 倍以上）
+            if pc > 1:
+                signals.append(("vol_surge_up",
+                                f"爆量上漲 {r:.1f}倍量 +{pc:.1f}% — 資金大幅流入"))
+            elif pc < -1:
+                signals.append(("vol_surge_down",
+                                f"爆量下跌 {r:.1f}倍量 {pc:.1f}% — 資金大幅流出"))
+            else:
+                signals.append(("vol_surge_flat",
+                                f"爆量整理 {r:.1f}倍量 — 多空激烈換手"))
+        elif r >= 2.0:
+            # 放量（2–3 倍）
+            direction = "偏多" if pc > 0 else "偏空" if pc < 0 else "持平"
+            signals.append(("vol_high",
+                            f"放量 {r:.1f}倍 {pc:+.1f}%（{direction}）"))
 
     # ── Stochastic：跌破 20 後開始回升 ──
     if stoch:
@@ -311,111 +369,157 @@ def compute_technicals(df):
         elif rsi63 > 70:
             signals.append(("rsi63_high", f"季RSI {rsi63:.0f} 中期超買"))
 
+    # ── 原子旗標（供 check_alerts 組合成複合訊號）──
+    flags = {
+        "vol_surge_up": False,    # 爆量上漲
+        "vol_surge_down": False,  # 爆量下跌
+        "vol_surge_flat": False,  # 爆量整理
+        "stoch_rebound": False,   # Stochastic 自超賣回升
+        "macd_death": False,      # MACD 死亡交叉
+        "macd_gold": False,       # MACD 黃金交叉
+    }
+    if vol:
+        r, pc = vol["ratio"], vol["price_chg"]
+        if r >= 3.0:
+            if pc > 1:
+                flags["vol_surge_up"] = True
+            elif pc < -1:
+                flags["vol_surge_down"] = True
+            else:
+                flags["vol_surge_flat"] = True
+    if stoch:
+        k, kp, kp2 = stoch["k"], stoch["k_prev"], stoch["k_prev2"]
+        if stoch["k_min_recent"] <= 20 and k < 40 and (
+                (k > kp and kp <= kp2 + 0.01) or
+                (k > stoch["d"] and kp <= stoch["d_prev"])):
+            flags["stoch_rebound"] = True
+    if macd:
+        h, hp = macd["hist"], macd["hist_prev"]
+        if hp <= 0 < h:
+            flags["macd_gold"] = True
+        elif hp >= 0 > h:
+            flags["macd_death"] = True
+
     return {
         "rsi14": rsi14,
         "rsi63": rsi63,
         "macd": macd,
         "stoch": stoch,
+        "vol": vol,
+        "flags": flags,
         "signals": signals,
     }
 
 
-def _latest_price(t):
-    """
-    取得單檔標的的「最新價」與「前一交易收盤」。
+# ── Yahoo Finance 資料層（直連 chart API，取代會卡住的 yfinance）────────────────
+# 背景：2026-09 起 Yahoo 的 v7/finance/quote 與 v10/quoteSummary 對未授權請求回
+# 401（需要 crumb cookie），yfinance 靠這兩個端點，於是在沙盒/一般環境下掛住 150s+
+# 才回空。但 v8/finance/chart 端點仍可匿名取值（回 OHLCV + regularMarketPrice），
+# 所以這裡改直連 chart，並加 fail-fast 逾時，不再讓引擎乾等。
+_YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
+HTTP_TIMEOUT = float(os.environ.get("YAHOO_TIMEOUT", "10"))  # 每次 request 秒數
+MAX_WORKERS = int(os.environ.get("YAHOO_WORKERS", "8"))       # 併發抓取數
+FUNDA_TIMEOUT = float(os.environ.get("YAHOO_FUNDA_TIMEOUT", "3"))  # 每檔本益比逾時秒數
 
-    優先使用 fast_info.lastPrice（盤中即時價 / 盤後最新成交），
-    其次 info.regularMarketPrice，最後退回 last_price fallback。
-    前一收盤用 fast_info.previousClose / info.regularMarketPreviousClose。
-    回傳 (price, previous_close) 或 (None, None)。
+
+def _yahoo_chart(sym, rng="1y", interval="1d"):
+    """直連 Yahoo v8 chart 端點，回傳 (DataFrame, meta) 或 (None, 錯誤字串)。
+
+    DataFrame 含 Open/High/Low/Close/Volume，index 為時區感知 timestamp，
+    與 compute_technicals 期望一致。meta 為原始 dict（含 regularMarketPrice）。
+    失敗一律在 HTTP_TIMEOUT 內回傳，不 block。429/5xx 時快速重試一次。
     """
+    url = _YAHOO_CHART_URL.format(sym=sym)
+    last_err = "no attempt"
+    for attempt in (0, 1):
+        try:
+            r = requests.get(url, params={"range": rng, "interval": interval},
+                             headers=_YAHOO_HEADERS, timeout=HTTP_TIMEOUT)
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {str(e)[:80]}"
+            continue
+        if r.status_code in (429, 500, 502, 503, 504):
+            last_err = f"HTTP {r.status_code}"
+            time.sleep(0.3 * (attempt + 1))
+            continue
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code}"
+        try:
+            j = r.json()
+            c = (j.get("chart", {}).get("result") or [{}])[0]
+            ts = c.get("timestamp") or []
+            if not ts:
+                return None, (j.get("chart", {}).get("error") or {}).get("description", "no data")
+            q = (c.get("indicators", {}).get("quote") or [{}])[0] or {}
+            adj = c.get("indicators", {}).get("adjclose") or [{}]
+            adjclose = (adj[0].get("adjclose") if adj and adj[0] else None)
+            meta = c.get("meta", {})
+            idx = pd.to_datetime(ts, unit="s", utc=True)
+            df = pd.DataFrame({
+                "Open": q.get("open"), "High": q.get("high"),
+                "Low": q.get("low"), "Close": adjclose or q.get("close"),
+                "Volume": q.get("volume"),
+            }, index=idx)
+            df = df.replace(0, pd.NA).dropna(how="all")
+            return df, meta
+        except Exception as e:
+            return None, f"parse {type(e).__name__}: {str(e)[:80]}"
+    return None, last_err
+
+
+def _fetch_one(t):
+    """抓單檔報價+技術面：回傳 (ticker, rec) 或 (ticker, None)。"""
     try:
-        tk = yf.Ticker(t)
-        fi = tk.fast_info
-        px = fi.get("lastPrice") or fi.get("last_price")
-        prev = fi.get("previousClose") or fi.get("regularMarketPreviousClose") or fi.get("previous_close")
-        if px is None or prev is None:
-            # 盤後/延遲時 fast_info 可能不全，改用 info
-            try:
-                info = tk.info
-                px = px or info.get("regularMarketPrice") or info.get("postMarketPrice") or info.get("currentPrice")
-                prev = prev or info.get("regularMarketPreviousClose") or info.get("previousClose")
-            except Exception:
-                pass
-        if px is None or float(px) <= 0:
-            return None, None
-        return float(px), float(prev) if prev else None
+        df, meta = _yahoo_chart(t)
+        if df is None or len(df) < 2:
+            return t, None
+        close = df["Close"].dropna()
+        if len(close) < 2:
+            return t, None
+
+        live = meta.get("regularMarketPrice")
+        last_close = float(close.iloc[-1])
+        last = float(live) if (live and float(live) > 0) else last_close
+        prev = float(close.iloc[-2])
+
+        ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+        hi_s = df["High"].dropna() if "High" in df else close
+        lo_s = df["Low"].dropna() if "Low" in df else close
+        high_52w = float(hi_s.max()) if len(hi_s) else last
+        low_52w = float(lo_s.min()) if len(lo_s) else last
+
+        rec = {
+            "price": last,
+            "chg_pct": (last - prev) / prev * 100 if prev else 0.0,
+            "ma200": ma200,
+            "ma200_dev": ((last - ma200) / ma200 * 100) if ma200 else None,
+            "high_52w": high_52w,
+            "low_52w": low_52w,
+            "spark": [float(x) for x in close.tail(60)],
+            "asof": df.index[-1],
+        }
+        try:
+            rec["tech"] = compute_technicals(df)
+        except Exception:
+            rec["tech"] = None
+        return t, rec
     except Exception:
-        return None, None
+        return t, None
 
 
 def fetch_market_data(tickers):
-    """抓取報價與 200 日均線。相容 yfinance 0.2.x 與 1.5.x。
-
-    修正「抓到前一天」：yfinance 日線對「最新交易日」的 Close 常回傳 NaN
-    （Open/High/Low/Volume 已有值）。此處改用逐檔 history 抓取，
-    並在最後一根 Close 為 NaN 時，以即時價（盤中價=現在、盤後價=最新收盤）
-    補上，避免 dropna 掉最新交易日而誤取前一天收盤。
-    """
+    """抓取報價與 200 日均線。改直連 Yahoo v8 chart 端點（併發 + fail-fast）。"""
     out = {}
     tickers = list(tickers)
-
-    for t in tickers:
-        try:
-            try:
-                df = yf.Ticker(t).history(period="1y", interval="1d",
-                                          auto_adjust=True)
-            except Exception:
-                continue
-            if df is None or len(df) < 2 or "Close" not in df.columns:
-                continue
-
-            close = df["Close"].dropna()
-
-            # ── 最新交易日 Close 為 NaN 時，用即時價補上 ──
-            prev_override = None
-            if close is not None and len(close) and pd.isna(df["Close"].iloc[-1]):
-                live, prev_close = _latest_price(t)
-                if live is not None:
-                    df.loc[df.index[-1], "Close"] = live
-                    close = df["Close"].dropna()
-                    # 前一交易日收盤以 previousClose 為準，確保當日漲跌幅正確
-                    prev_override = prev_close
-
-            if close is None or len(close) < 2:
-                continue
-            last, prev = float(close.iloc[-1]), float(close.iloc[-2])
-            if prev_override:
-                prev = prev_override
-            ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
-
-            # 52 週高低：優先用「盤中」High/Low，資料缺漏才退回收盤價。
-            # 舊版用 close.max()，那是「近一年最高收盤」，會低估實際跌幅
-            # （例：SIVR 距高點 -44.6% 是低估值）。
-            try:
-                hi_s = df["High"].dropna() if "High" in df else close
-                lo_s = df["Low"].dropna() if "Low" in df else close
-                high_52w = float(hi_s.max()) if len(hi_s) else float(close.max())
-                low_52w = float(lo_s.min()) if len(lo_s) else float(close.min())
-            except Exception:
-                high_52w, low_52w = float(close.max()), float(close.min())
-
-            out[t] = {
-                "price": last,
-                "chg_pct": (last - prev) / prev * 100 if prev else 0.0,
-                "ma200": ma200,
-                "ma200_dev": ((last - ma200) / ma200 * 100) if ma200 else None,
-                "high_52w": high_52w,
-                "low_52w": low_52w,
-                "spark": [float(x) for x in close.tail(60)],
-                "asof": df.index[-1],
-            }
-            try:
-                out[t]["tech"] = compute_technicals(df)
-            except Exception:
-                out[t]["tech"] = None
-        except Exception:
-            continue
+    if not tickers:
+        return out
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(_fetch_one, t): t for t in tickers}
+        for fut in as_completed(futs):
+            t, rec = fut.result()
+            if rec is not None:
+                out[t] = rec
     return out
 
 
@@ -428,6 +532,32 @@ def _clean_pe(v):
     if v <= 0 or v > 2000:
         return None
     return v
+
+
+def _yahoo_fundamental(sym):
+    """抓單檔本益比（trailing, forward）。用背景執行緒 + FUNDA_TIMEOUT 硬逾時
+    包住 yf.Ticker().info，確保 Yahoo 401/卡死時也不 block。回傳 (trail, fwd)。
+    """
+    result = {}
+
+    def _work():
+        try:
+            info = yf.Ticker(sym).info
+            result["trail"] = _clean_pe(info.get("trailingPE"))
+            result["fwd"] = _clean_pe(info.get("forwardPE"))
+        except Exception:
+            result["trail"] = result["fwd"] = None
+
+    ex = ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(_work)
+    try:
+        fut.result(timeout=FUNDA_TIMEOUT)
+    except Exception:
+        ex.shutdown(wait=False)
+        return None, None
+    finally:
+        ex.shutdown(wait=False)
+    return result.get("trail"), result.get("fwd")
 
 
 def fetch_fundamentals(tickers):
@@ -446,34 +576,39 @@ def fetch_fundamentals(tickers):
 
     現在：trailing 為主軸（重力線與盈餘殖利率一律用 trailing），
           forward 僅作對照保留，並標示每一檔實際使用的基準。
+
+    ── 2026-09 修正 ──────────────────────────────────────────
+    Yahoo quote/quoteSummary 端點已需 crumb（401），yfinance .info 亦會卡死，
+    故每檔包 FUNDA_TIMEOUT 硬逾時 + 併發，迅速回 n/a，不再逐檔乾等。
     ──────────────────────────────────────────────────────────
     """
     out = {}
-    for t in tickers:
-        trail = fwd = None
-        try:
-            info = yf.Ticker(t).info
-            trail = _clean_pe(info.get("trailingPE"))
-            fwd = _clean_pe(info.get("forwardPE"))
-        except Exception:
-            pass
+    tickers = list(tickers)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(_yahoo_fundamental, t): t for t in tickers}
+        for fut in as_completed(futs):
+            t = futs[fut]
+            try:
+                trail, fwd = fut.result()
+            except Exception:
+                trail, fwd = None, None
 
-        # 主軸 trailing；完全沒有 trailing 時才退回 forward，並明確標記
-        if trail:
-            pe, basis = trail, "T"
-        elif fwd:
-            pe, basis = fwd, "F"
-        else:
-            pe, basis = None, None
+            # 主軸 trailing；完全沒有 trailing 時才退回 forward，並明確標記
+            if trail:
+                pe, basis = trail, "T"
+            elif fwd:
+                pe, basis = fwd, "F"
+            else:
+                pe, basis = None, None
 
-        out[t] = {
-            "pe": pe,
-            "pe_basis": basis,            # "T"=trailing, "F"=forward(替代)
-            "pe_trailing": trail,
-            "pe_forward": fwd,
-            "earnings_yield": (100 / pe) if pe else None,
-            "ey_forward": (100 / fwd) if fwd else None,
-        }
+            out[t] = {
+                "pe": pe,
+                "pe_basis": basis,            # "T"=trailing, "F"=forward(替代)
+                "pe_trailing": trail,
+                "pe_forward": fwd,
+                "earnings_yield": (100 / pe) if pe else None,
+                "ey_forward": (100 / fwd) if fwd else None,
+            }
 
     _audit_pe(out)
     return out
@@ -605,18 +740,69 @@ def check_alerts(macro, stocks, funda=None):
 
         dev = d.get("ma200_dev")
         tech = d.get("tech") or {}
-
-        # ── 循環頂點嫌疑：trailing PE 極低 + 乖離極大 ──
+        flags = tech.get("flags") or {}
         f = funda.get(t, {})
         pe_t = f.get("pe_trailing")
-        if (kind == "normal" and pe_t and dev is not None
-                and pe_t <= ALERTS["cyclical_pe"]
-                and dev >= ALERTS["cyclical_dev"]):
+        ey = f.get("earnings_yield")
+
+        # ── 估值維度：盈餘殖利率 vs 自重線（30Y 公債殖利率）──
+        # ey < tyx：風險/報酬倒掛（承擔股票風險卻賺輸無風險公債）
+        # ey >= tyx：有安全邊際（盈餘報酬率至少蓋過公債）
+        above_gravity = (ey is not None and tyx is not None and ey >= tyx)
+        below_gravity = (ey is not None and tyx is not None and ey < tyx)
+        trap_gravity = (ey is not None and tyx is not None
+                        and (tyx - ey) >= ALERTS["valuation_trap_gap"])
+
+        # ── 循環頂點嫌疑：trailing PE 極低 + 乖離極大 ──
+        cyclical = (kind == "normal" and pe_t and dev is not None
+                    and pe_t <= ALERTS["cyclical_pe"]
+                    and dev >= ALERTS["cyclical_dev"])
+        if cyclical:
             out.append((
                 "critical", f"⚑ {t} 循環頂點嫌疑",
                 f"本益比僅 {pe_t:.1f} 倍卻高於年線 {dev:+.1f}%——"
                 f"低本益比來自暴衝的 E，不是便宜的 P"
             ))
+
+        near_ma = (kind == "normal" and dev is not None
+                   and abs(dev) <= abs(ALERTS["ma200_dev"]))
+        below_ma = (kind == "normal" and dev is not None and dev <= -5)
+
+        # ── 複合訊號（多條件同時成立，可靠度較高，優先顯示）──
+        composite = None
+
+        # 1) 資金進場：爆量上漲 + Stochastic 自超賣回升 + 貼近年線 + 估值有安全邊際
+        if (kind == "normal" and flags.get("vol_surge_up")
+                and flags.get("stoch_rebound") and near_ma and above_gravity):
+            composite = ("critical",
+                         f"★ {t} 資金進場訊號",
+                         f"爆量上漲＋超賣回升＋貼近年線，且盈餘殖利率 {ey:.1f}% ≥ "
+                         f"自重線 {tyx:.2f}%（估值有安全邊際，四重確認）")
+        # 2) 資金出逃：爆量下跌 + 跌破年線 + MACD 死叉 + 估值本已脆弱
+        elif (kind == "normal" and flags.get("vol_surge_down")
+                and below_ma and flags.get("macd_death") and below_gravity):
+            composite = ("critical",
+                         f"★ {t} 資金出逃警戒",
+                         f"爆量下跌＋跌破年線＋MACD死叉，且盈餘殖利率 {ey:.1f}% < "
+                         f"自重線 {tyx:.2f}%（估值本已倒掛，四重確認）")
+        # 3) 估值陷阱：盈餘殖利率遠低自重線 + 技術面轉弱
+        elif (kind == "normal" and trap_gravity
+                and below_gravity
+                and (flags.get("macd_death") or below_ma)):
+            composite = ("critical",
+                         f"★ {t} 估值陷阱",
+                         f"盈餘殖利率 {ey:.1f}% 遠低於自重線 {tyx:.2f}%，"
+                         f"且技術面轉弱（倒掛 + 動能下行）")
+        # 4) 變盤前兆：爆量整理（量爆但價平）
+        elif kind == "normal" and flags.get("vol_surge_flat"):
+            composite = ("watch",
+                         f"★ {t} 變盤前兆",
+                         "爆量但價平，多空激烈換手")
+
+        if composite:
+            out.append(composite)
+            # 複合訊號已觸發，抑制該檔的乖離與單一技術訊號，避免洗版
+            continue
 
         # ── 乖離類警示 ──
         # 槓桿／展期耗損型跳過：長期乖離來自結構性耗損，不是方向訊號
@@ -638,6 +824,10 @@ def check_alerts(macro, stocks, funda=None):
                 "macd_death": "critical",
                 "rsi63_low": "watch",
                 "rsi63_high": "watch",
+                "vol_surge_up": "watch",
+                "vol_surge_down": "critical",
+                "vol_surge_flat": "watch",
+                "vol_high": "watch",
             }.get(sig_type, "watch")
             note = "（槓桿商品，僅供短線參考）" if kind == "decay" else ""
             out.append((lvl, f"{t}", msg + note))
@@ -1108,7 +1298,8 @@ def build_html(macro, stocks, funda, fred_data, refresh=0, pm_data=None, polymar
     al = check_alerts(macro, stocks, funda)
     if al:
         order = {"critical": 0, "watch": 1, "calm": 2}
-        al.sort(key=lambda x: order.get(x[0], 9))
+        # 複合訊號（★）+ 基本面警訊（⚑）置頂，其次按等級
+        al.sort(key=lambda x: (0 if x[1][:1] in "★⚑" else 1, order.get(x[0], 9)))
         items = "".join(
             f'<div class="al {lv}"><span class="bar"></span>'
             f'<span class="h">{h}</span><span class="d">{d}</span></div>'
@@ -1200,7 +1391,7 @@ def build_html(macro, stocks, funda, fred_data, refresh=0, pm_data=None, polymar
 {poly_html}
 
 <footer>
-  資料來源 yfinance，約 15 分鐘延遲，非即時報價。<br>
+  資料來源 直連 Yahoo v8 chart API，約 15 分鐘延遲，非即時報價。<br>
   本益比一律以 <b>trailing（歷史）</b>為主軸，標 <sup class="basis">T</sup>；
   無 trailing 才退回 forward，標 <sup class="basis warnb">F</sup>（已內含成長預期，會顯得較便宜）。
   滑鼠移到數字上可看另一個基準。<br>

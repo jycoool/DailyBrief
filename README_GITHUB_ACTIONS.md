@@ -6,8 +6,20 @@
 
 | workflow 檔 | 做的事 | 多久跑 |
 |---|---|---|
-| `.github/workflows/daily_brief.yml` | 盤前/盤後產生「每日初判」→ 存檔 + 上傳 Google Drive + 反哺知識庫 | 每週一到五 2 次（盤前/盤後） |
+| `.github/workflows/daily_brief.yml` | 盤前/盤後產生「每日初判」→ 存檔 + 上傳 Google Drive + 反哺知識庫 + commit 回 repo | 每週一到五 2 次（盤前/盤後） |
+| `.github/workflows/weekly_brief.yml` | 彙整當週初判＋Google News RSS＋週五快照 → 產「週報」＋「框架/知識庫更新建議」→ Drive + commit 回 repo | 每週日 15:00 ET |
 | `.github/workflows/market_monitor_pages.yml` | 抓市場資料 → 重產 `dashboard.html` → commit 回 repo → GitHub Pages 呈現 | 每 30 分鐘（美股開盤時段） |
+
+## 週報自動化（weekly_brief.py）特別說明
+
+- **排程**：`0 19 * * 0` = 週日 19:00 UTC = 週日 15:00 ET（夏令；冬令改 `0 20 * * 0`）。
+- **資料來源**：daily_brief.yml 每次跑完已把當日初判 commit 回 repo，所以週日的週報能吃到整週的 `Dashboard/briefs/每日初判_*.md`（精修版優先，同日有精修就略過草稿）。
+- **輸出**：
+  - `briefs/週報_YYYY-MM-DD_至_YYYY-MM-DD_Www.md`＋同名 `.html`
+  - `knowledge_updates_log.md` —— LLM 產生的「框架與知識庫更新建議」**只追加到這個 log**，腳本刻意不直接改 `knowledge_analysis.md` 和 `核心分析框架.docx`（唯一真相源），每週一你 git pull 後人工確認再併入。
+  - Google Drive 備份到「每週週報」資料夾（secrets 與 daily 相同，不需新增）。
+- **防覆蓋**：若你週末已手動精修了同名週報，自動版會另存 `..._Www_自動版.md`，不覆蓋人工版。
+- **測試**：repo → Actions → `weekly_brief` → Run workflow；本機則 `cd Dashboard && python weekly_brief.py --dry-run` 看 prompt。
 
 ## 一句話原理
 

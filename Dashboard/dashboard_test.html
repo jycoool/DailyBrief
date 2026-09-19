@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>市場監控儀表板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EDF0F3; --sheet:#FFFFFF; --ink:#15202B; --ink-2:#5A6B7C;
+  --rule:#C9D3DC; --grid:rgba(21,32,43,.045);
+  --up:#1B6B4A; --down:#A5301E; --warn:#B0771A; --line:#2B4C6F;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'IBM Plex Sans','Noto Sans TC',system-ui,sans-serif;
+  background:var(--paper); color:var(--ink);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:28px 28px;
+  padding:28px 20px 64px; line-height:1.5;
+}
+.wrap{max-width:1120px;margin:0 auto}
+.num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.eyebrow{
+  font-family:'IBM Plex Sans Condensed','Noto Sans TC',sans-serif;
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-2);font-weight:600;
+}
+
+/* header */
+header{
+  display:flex;justify-content:space-between;align-items:flex-end;
+  gap:16px;flex-wrap:wrap;
+  border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:24px;
+}
+h1{
+  font-family:'IBM Plex Sans Condensed','Noto Sans TC',sans-serif;
+  font-size:30px;font-weight:600;letter-spacing:-.01em;line-height:1;
+}
+h1 span{color:var(--ink-2);font-weight:400}
+.stamp{text-align:right}
+.stamp .t{font-size:13px}
+
+/* sections */
+section{margin-bottom:30px}
+.shead{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.shead::after{content:"";flex:1;height:1px;background:var(--rule)}
+
+/* macro cards */
+.macro{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule)}
+.cell{background:var(--sheet);padding:12px 14px}
+.cell .lbl{font-size:11.5px;color:var(--ink-2);margin-bottom:5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell .val{font-size:21px;font-weight:500;letter-spacing:-.02em}
+.cell .chg{font-size:12.5px;margin-top:2px}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--ink-2)}
+
+/* gravity line */
+.gravity{background:var(--sheet);border:1px solid var(--rule);padding:22px 22px 14px;position:relative}
+.gwrap{position:relative;height:210px;margin:26px 0 6px}
+.gaxis{position:absolute;left:0;right:0;height:1px;background:var(--rule)}
+.gline{position:absolute;left:0;right:0;height:0;
+  border-top:2px dashed var(--line);z-index:2}
+.gline .tag{
+  position:absolute;right:0;top:-9px;background:var(--line);color:#fff;
+  font-size:10.5px;padding:2px 7px;letter-spacing:.04em;white-space:nowrap;
+}
+.gdot{position:absolute;transform:translate(-50%,50%);z-index:3;text-align:center}
+.gdot i{display:block;width:9px;height:9px;border-radius:50%;margin:0 auto 4px}
+.gdot b{font-size:10.5px;font-weight:600;display:block;white-space:nowrap}
+.gdot em{font-size:9.5px;font-style:normal;color:var(--ink-2);display:block}
+.gnote{font-size:12px;color:var(--ink-2);border-top:1px solid var(--rule);padding-top:10px}
+.gzone{position:absolute;left:0;right:0;bottom:0;background:rgba(165,48,30,.045);z-index:1}
+
+/* table */
+table{width:100%;border-collapse:collapse;background:var(--sheet);
+  border:1px solid var(--rule);font-size:13.5px}
+th{font-family:'IBM Plex Sans Condensed','Noto Sans TC',sans-serif;
+  font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);
+  text-align:right;padding:9px 12px;border-bottom:1px solid var(--rule);font-weight:600}
+th:first-child,th:nth-child(2){text-align:left}
+td{padding:9px 12px;border-bottom:1px solid #EDF1F4;text-align:right}
+td:first-child,td:nth-child(2){text-align:left}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:#F7F9FB}
+.tick{font-weight:600;letter-spacing:.02em}
+.name{color:var(--ink-2);font-size:12.5px}
+.devbar{display:inline-block;vertical-align:middle;height:4px;margin-left:7px;
+  min-width:2px;border-radius:1px}
+.pill{display:inline-block;padding:1px 6px;font-size:11px;border:1px solid;border-radius:2px}
+.pill.at{border-color:var(--warn);color:var(--warn)}
+.pill.na{border-color:var(--rule);color:var(--ink-2);opacity:.85}
+.pill.cyc{border-color:var(--down);color:var(--down);font-weight:600}
+.pill.aud{border-color:var(--warn);color:var(--warn);font-size:10px;padding:0 4px;margin-left:4px}
+.tech-col{text-align:center}
+sup.basis{font-size:9px;letter-spacing:.04em;color:var(--ink-2);margin-left:2px}
+sup.basis.warnb{color:var(--warn);font-weight:600}
+
+/* alerts */
+.alerts{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.al{background:var(--sheet);padding:11px 14px;display:flex;gap:12px;align-items:baseline}
+.al .bar{width:3px;align-self:stretch;flex:0 0 3px}
+.al.critical .bar{background:var(--down)}
+.al.watch .bar{background:var(--warn)}
+.al.calm .bar{background:var(--up)}
+.al .h{font-weight:600;font-size:13.5px;white-space:nowrap}
+.al .d{font-size:12.5px;color:var(--ink-2)}
+.empty{background:var(--sheet);border:1px solid var(--rule);padding:16px;
+  font-size:13px;color:var(--ink-2)}
+
+/* breadth */
+.breadth{background:var(--sheet);border:1px solid var(--rule);padding:14px 16px;
+  display:flex;gap:18px;align-items:baseline;flex-wrap:wrap}
+.breadth .v{font-size:19px;font-weight:500}
+
+footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--rule);
+  font-size:11.5px;color:var(--ink-2);line-height:1.8}
+
+@media (max-width:640px){
+  body{padding:18px 12px 48px}
+  h1{font-size:23px}
+  .name,.pe-col,.tech-col{display:none}
+  .gwrap{height:250px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .cell,.al{animation:fade .4s ease both}
+}
+@keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+</style>
+</head><body><div class="wrap">
+
+<header>
+  <div>
+    <div class="eyebrow" style="margin-bottom:5px">個人市場監控</div>
+    <h1>儀表板 <span>/ Market Monitor</span></h1>
+  </div>
+  <div class="stamp">
+    <div class="eyebrow">報價日期</div>
+    <div class="t num">2026-09-12</div>
+    <div class="eyebrow" style="margin-top:3px">產生於 00:21:46 · 約 15 分鐘延遲</div>
+  </div>
+</header>
+
+<section>
+  <div class="shead"><span class="eyebrow">門檻警示</span></div>
+  <div class="alerts"><div class="al critical"><span class="bar"></span><span class="h">★ BWXT 估值陷阱</span><span class="d">盈餘殖利率 2.4% 遠低於自重線 5.26%，且技術面轉弱（倒掛 + 動能下行）</span></div><div class="al critical"><span class="bar"></span><span class="h">★ TSLA 估值陷阱</span><span class="d">盈餘殖利率 0.5% 遠低於自重線 5.26%，且技術面轉弱（倒掛 + 動能下行）</span></div><div class="al critical"><span class="bar"></span><span class="h">⚑ MU 循環頂點嫌疑</span><span class="d">本益比僅 8.1 倍卻高於年線 +75.9%——低本益比來自暴衝的 E，不是便宜的 P</span></div><div class="al watch"><span class="bar"></span><span class="h">VIX 14.25</span><span class="d">過度平靜，低波動配高槓桿是危險組合</span></div><div class="al watch"><span class="bar"></span><span class="h">TMF</span><span class="d">季RSI 21 中期超賣（槓桿商品，僅供短線參考）</span></div><div class="al watch"><span class="bar"></span><span class="h">CNYA 貼近年線</span><span class="d">乖離 +1.8%，落在年線觀察區</span></div><div class="al watch"><span class="bar"></span><span class="h">INTC 乖離偏大</span><span class="d">高於年線 +46.1%</span></div><div class="al watch"><span class="bar"></span><span class="h">MU 乖離偏大</span><span class="d">高於年線 +75.9%</span></div><div class="al watch"><span class="bar"></span><span class="h">MRVL 乖離偏大</span><span class="d">高於年線 +57.0%</span></div><div class="al watch"><span class="bar"></span><span class="h">SNOW 乖離偏大</span><span class="d">高於年線 +53.4%</span></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="eyebrow">總經與市場指標</span></div>
+  <div class="macro"><div class="cell"><div class="lbl">10年期公債殖利率</div><div class="val num">4.70%</div><div class="chg num up">+1.19%</div></div><div class="cell"><div class="lbl">30年期公債殖利率</div><div class="val num">5.26%</div><div class="chg num up">+1.00%</div></div><div class="cell"><div class="lbl">美元指數 DXY</div><div class="val num">99.67</div><div class="chg num down">-0.29%</div></div><div class="cell"><div class="lbl">美元 / 日圓</div><div class="val num">159.27</div><div class="chg num down">-0.10%</div></div><div class="cell"><div class="lbl">黃金 期貨</div><div class="val num">4,437.30</div><div class="chg num up">+1.69%</div></div><div class="cell"><div class="lbl">白銀 期貨</div><div class="val num">65.11</div><div class="chg num up">+0.36%</div></div><div class="cell"><div class="lbl">西德州原油</div><div class="val num">82.40</div><div class="chg num up">+1.42%</div></div><div class="cell"><div class="lbl">VIX 波動率</div><div class="val num">14.25</div><div class="chg num down">-2.60%</div></div><div class="cell"><div class="lbl">費城半導體 指數</div><div class="val num">12,417.05</div><div class="chg num down">-0.31%</div></div><div class="cell"><div class="lbl">標普500 指數</div><div class="val num">6,812.44</div><div class="chg num down">-0.17%</div></div><div class="cell"><div class="lbl">那斯達克100 指數</div><div class="val num">25,104.90</div><div class="chg num down">-0.13%</div></div><div class="cell"><div class="lbl">QQQ · 那指100 ETF</div><div class="val num">731.07</div><div class="chg num down">-0.14%</div></div><div class="cell"><div class="lbl">SPY · 標普500 ETF</div><div class="val num">776.34</div><div class="chg num down">-0.20%</div></div><div class="cell"><div class="lbl">RSP · 標普500 等權重 ETF</div><div class="val num">222.77</div><div class="chg num flat">+0.02%</div></div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="eyebrow">估值重力</span></div>
+  
+<div class="gravity">
+  <div class="eyebrow">重力線 · 盈餘殖利率 對 無風險利率</div>
+  <div class="gwrap">
+    <div class="gzone" style="height:11.23%"></div>
+    <div class="gaxis" style="bottom:0"></div>
+    <div class="gline" style="bottom:11.23%">
+      <span class="tag num">30Y 公債 5.26%</span></div>
+    <div class="gdot" style="left:2.50%;bottom:1.00%"><i style="background:var(--down)"></i><b>TSLA</b><em class="num">0.5%</em></div><div class="gdot" style="left:7.50%;bottom:1.75%"><i style="background:var(--down)"></i><b>SNOW*</b><em class="num">0.8%</em></div><div class="gdot" style="left:12.50%;bottom:3.24%"><i style="background:var(--down)"></i><b>AVGO</b><em class="num">1.5%</em></div><div class="gdot" style="left:17.50%;bottom:3.47%"><i style="background:var(--down)"></i><b>GEV</b><em class="num">1.6%</em></div><div class="gdot" style="left:22.50%;bottom:4.25%"><i style="background:var(--down)"></i><b>INTC*</b><em class="num">2.0%</em></div><div class="gdot" style="left:27.50%;bottom:4.45%"><i style="background:var(--down)"></i><b>MRVL</b><em class="num">2.1%</em></div><div class="gdot" style="left:32.50%;bottom:5.18%"><i style="background:var(--down)"></i><b>BWXT</b><em class="num">2.4%</em></div><div class="gdot" style="left:37.50%;bottom:5.61%"><i style="background:var(--down)"></i><b>QQQ</b><em class="num">2.6%</em></div><div class="gdot" style="left:42.50%;bottom:5.87%"><i style="background:var(--down)"></i><b>AAPL</b><em class="num">2.7%</em></div><div class="gdot" style="left:47.50%;bottom:7.17%"><i style="background:var(--down)"></i><b>SPY</b><em class="num">3.4%</em></div><div class="gdot" style="left:52.50%;bottom:7.26%"><i style="background:var(--down)"></i><b>NVDA</b><em class="num">3.4%</em></div><div class="gdot" style="left:57.50%;bottom:7.66%"><i style="background:var(--down)"></i><b>GOOGL</b><em class="num">3.6%</em></div><div class="gdot" style="left:62.50%;bottom:8.12%"><i style="background:var(--down)"></i><b>MSFT</b><em class="num">3.8%</em></div><div class="gdot" style="left:67.50%;bottom:8.86%"><i style="background:var(--down)"></i><b>TSM</b><em class="num">4.1%</em></div><div class="gdot" style="left:72.50%;bottom:9.53%"><i style="background:var(--down)"></i><b>SIL</b><em class="num">4.5%</em></div><div class="gdot" style="left:77.50%;bottom:10.17%"><i style="background:var(--down)"></i><b>CQQQ</b><em class="num">4.8%</em></div><div class="gdot" style="left:82.50%;bottom:11.30%"><i style="background:var(--up)"></i><b>CNYA</b><em class="num">5.3%</em></div><div class="gdot" style="left:87.50%;bottom:15.70%"><i style="background:var(--up)"></i><b>ET</b><em class="num">7.4%</em></div><div class="gdot" style="left:92.50%;bottom:26.37%"><i style="background:var(--up)"></i><b>MU</b><em class="num">12.3%</em></div><div class="gdot" style="left:97.50%;bottom:82.15%"><i style="background:var(--up)"></i><b>SKHY</b><em class="num">38.5%</em></div>
+  </div>
+  <div class="gnote">線下方的持股，承擔股票風險卻拿不到公債的收益。<br>
+  盈餘殖利率 = 1 ÷ <b>歷史（trailing）本益比</b>，以已實現盈餘計算，未計入未來成長。　<b>*</b> 共 2 檔無 trailing 資料，改用 forward（已內含成長預期，會顯得較便宜）。<br>
+  <b>反向陷阱：</b>線上方的極高盈餘殖利率若來自循環股（記憶體、能源）的頂點盈餘，
+  代表的是 E 即將反轉，不是便宜。請對照警示區的「⚑ 循環頂點嫌疑」。</div>
+</div>
+</section>
+
+<section>
+  <div class="shead"><span class="eyebrow">觀察清單</span></div>
+  <table>
+<thead><tr><th>代號</th><th>名稱</th><th>股價</th><th>日變動</th>
+<th>年線乖離</th><th class="tech-col">RSI14</th><th class="tech-col">季RSI</th>
+<th class="tech-col">Stoch</th><th class="tech-col">MACD</th>
+<th class="pe-col">本益比 <sup class="basis">T</sup></th><th>盈餘殖利率</th></tr></thead>
+<tbody><tr>
+  <td class="tick">UVXY</td><td class="name">UVXY</td>
+  <td class="num">20.10</td>
+  <td class="num down">-2.05%</td>
+  <td><span class="num flat">-47.1%</span> <span class="pill na" title="槓桿／期貨展期商品，乖離含結構性耗損，不代表方向，已排除於乖離警示外">耗損</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="flat">—</span></td>
+  <td><span class="flat">—</span></td></tr><tr>
+  <td class="tick">UNG</td><td class="name">UNG</td>
+  <td class="num">9.92</td>
+  <td class="num down">-0.50%</td>
+  <td><span class="num flat">-17.3%</span> <span class="pill na" title="槓桿／期貨展期商品，乖離含結構性耗損，不代表方向，已排除於乖離警示外">耗損</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="flat">—</span></td>
+  <td><span class="flat">—</span></td></tr><tr>
+  <td class="tick">TMF</td><td class="name">TMF</td>
+  <td class="num">30.59</td>
+  <td class="num down">-2.08%</td>
+  <td><span class="num flat">-15.4%</span> <span class="pill na" title="槓桿／期貨展期商品，乖離含結構性耗損，不代表方向，已排除於乖離警示外">耗損</span></td>
+  <td class="tech-col"><span class="num up">1</span></td>
+  <td class="tech-col"><span class="num up">21</span></td>
+  <td class="tech-col"><span class="num up" title="%D 11">11</span></td>
+  <td class="tech-col"><span class="num down" title="柱狀 -0.06">▼</span></td>
+  <td class="pe-col"><span class="flat">—</span></td>
+  <td><span class="flat">—</span></td></tr><tr>
+  <td class="tick">GLDM</td><td class="name">GLDM</td>
+  <td class="num">86.58</td>
+  <td class="num up">+0.62%</td>
+  <td><span class="num down">-2.5%</span><span class="devbar" style="width:4px;background:var(--down)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="flat">—</span></td>
+  <td><span class="flat">—</span></td></tr><tr>
+  <td class="tick">SIL</td><td class="name">SIL</td>
+  <td class="num">89.55</td>
+  <td class="num up">+0.98%</td>
+  <td><span class="num up">+3.0%</span><span class="devbar" style="width:5px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 18.7">22.4</span><sup class="basis">T</sup></td>
+  <td><span class="num down">4.46%</span></td></tr><tr>
+  <td class="tick">SPY</td><td class="name">SPY</td>
+  <td class="num">776.34</td>
+  <td class="num down">-0.20%</td>
+  <td><span class="num up">+10.5%</span><span class="devbar" style="width:17px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 26.2">29.8</span><sup class="basis">T</sup></td>
+  <td><span class="num down">3.36%</span></td></tr><tr>
+  <td class="tick">SGOV</td><td class="name">SGOV</td>
+  <td class="num">100.56</td>
+  <td class="num flat">+0.03%</td>
+  <td><span class="flat">n/a</span> <span class="pill na" title="現金／超短債型，淨值近乎不動，年線乖離無意義，已排除於警示外">現金型</span></td>
+  <td class="tech-col"><span class="num up">1</span></td>
+  <td class="tech-col"><span class="num up">21</span></td>
+  <td class="tech-col"><span class="num up" title="%D 11">11</span></td>
+  <td class="tech-col"><span class="num down" title="柱狀 -0.06">▼</span></td>
+  <td class="pe-col"><span class="flat">—</span></td>
+  <td><span class="flat">—</span></td></tr><tr>
+  <td class="tick">QQQ</td><td class="name">QQQ</td>
+  <td class="num">731.07</td>
+  <td class="num down">-0.14%</td>
+  <td><span class="num up">+12.6%</span><span class="devbar" style="width:20px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 31.3">38.1</span><sup class="basis">T</sup></td>
+  <td><span class="num down">2.62%</span></td></tr><tr>
+  <td class="tick">CQQQ</td><td class="name">CQQQ</td>
+  <td class="num">50.88</td>
+  <td class="num down">-0.33%</td>
+  <td><span class="num down">-2.5%</span><span class="devbar" style="width:4px;background:var(--down)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 19.6">21.0</span><sup class="basis">T</sup></td>
+  <td><span class="num down">4.76%</span></td></tr><tr>
+  <td class="tick">GEV</td><td class="name">GEV</td>
+  <td class="num">1,063.25</td>
+  <td class="num up">+1.32%</td>
+  <td><span class="num up">+24.1%</span><span class="devbar" style="width:39px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 42.2">61.5</span><sup class="basis">T</sup></td>
+  <td><span class="num down">1.63%</span></td></tr><tr>
+  <td class="tick">CNYA</td><td class="name">CNYA</td>
+  <td class="num">36.09</td>
+  <td class="num down">-0.41%</td>
+  <td><span class="num up">+1.8%</span><span class="devbar" style="width:3px;background:var(--up)"></span> <span class="pill at">年線</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 17.6">18.9</span><sup class="basis">T</sup></td>
+  <td><span class="num up">5.29%</span></td></tr><tr>
+  <td class="tick">BWXT</td><td class="name">BWXT</td>
+  <td class="num">173.22</td>
+  <td class="num up">+1.68%</td>
+  <td><span class="num down">-11.4%</span><span class="devbar" style="width:18px;background:var(--down)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 33.0">41.2</span><sup class="basis">T</sup></td>
+  <td><span class="num down">2.43%</span></td></tr><tr>
+  <td class="tick">AAPL</td><td class="name">AAPL</td>
+  <td class="num">305.93</td>
+  <td class="num up">+0.22%</td>
+  <td><span class="num up">+9.3%</span><span class="devbar" style="width:15px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="num ">41</span></td>
+  <td class="tech-col"><span class="num ">49</span></td>
+  <td class="tech-col"><span class="num up" title="%D 12">9</span></td>
+  <td class="tech-col"><span class="num down" title="柱狀 -0.71">▼</span></td>
+  <td class="pe-col"><span class="num" title="forward 32.2">36.4</span><sup class="basis">T</sup></td>
+  <td><span class="num down">2.75%</span></td></tr><tr>
+  <td class="tick">GOOGL</td><td class="name">GOOGL</td>
+  <td class="num">345.90</td>
+  <td class="num down">-0.13%</td>
+  <td><span class="num up">+4.5%</span><span class="devbar" style="width:7px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 23.5">27.9</span><sup class="basis">T</sup></td>
+  <td><span class="num down">3.58%</span></td></tr><tr>
+  <td class="tick">MSFT</td><td class="name">MSFT</td>
+  <td class="num">495.40</td>
+  <td class="num down">-0.30%</td>
+  <td><span class="num up">+14.9%</span><span class="devbar" style="width:24px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 21.0">26.3</span><sup class="basis">T</sup></td>
+  <td><span class="num down">3.80%</span></td></tr><tr>
+  <td class="tick">TSLA</td><td class="name">TSLA</td>
+  <td class="num">342.27</td>
+  <td class="num up">+0.68%</td>
+  <td><span class="num down">-15.7%</span><span class="devbar" style="width:25px;background:var(--down)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 157.0">214.0</span><sup class="basis">T</sup></td>
+  <td><span class="num down">0.47%</span></td></tr><tr>
+  <td class="tick">SPCX</td><td class="name">SPCX</td>
+  <td class="num">140.00</td>
+  <td class="num down">-0.91%</td>
+  <td><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="flat">—</span></td>
+  <td><span class="flat">—</span></td></tr><tr>
+  <td class="tick">TSM</td><td class="name">TSM</td>
+  <td class="num">426.35</td>
+  <td class="num down">-0.96%</td>
+  <td><span class="num up">+17.7%</span><span class="devbar" style="width:28px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 19.6">24.1</span><sup class="basis">T</sup></td>
+  <td><span class="num down">4.15%</span></td></tr><tr>
+  <td class="tick">INTC</td><td class="name">INTC</td>
+  <td class="num">102.50</td>
+  <td class="num down">-1.97%</td>
+  <td><span class="num up">+46.1%</span><span class="devbar" style="width:56px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="無 trailing 資料">50.2</span><sup class="basis warnb">F</sup></td>
+  <td><span class="num down">1.99%</span></td></tr><tr>
+  <td class="tick">NVDA</td><td class="name">NVDA</td>
+  <td class="num">225.16</td>
+  <td class="num down">-0.06%</td>
+  <td><span class="num up">+15.6%</span><span class="devbar" style="width:25px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 17.6">29.4</span><sup class="basis">T</sup></td>
+  <td><span class="num down">3.40%</span></td></tr><tr>
+  <td class="tick">AVGO</td><td class="name">AVGO</td>
+  <td class="num">392.99</td>
+  <td class="num down">-5.94%</td>
+  <td><span class="num up">+6.7%</span><span class="devbar" style="width:11px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 20.1｜T/F 差距 ≥3 倍，兩者對未來看法嚴重分歧">65.9</span><sup class="basis">T</sup><span class="pill aud" title="trailing 與 forward 差距 ≥3 倍">分歧</span></td>
+  <td><span class="num down">1.52%</span></td></tr><tr>
+  <td class="tick">MU</td><td class="name">MU</td>
+  <td class="num">971.66</td>
+  <td class="num up">+2.30%</td>
+  <td><span class="num up">+75.9%</span><span class="devbar" style="width:56px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 6.3">8.1</span><sup class="basis">T</sup></td>
+  <td><span class="num up">12.35%</span> <span class="pill cyc" title="低本益比 + 高乖離：循環頂點嫌疑，高盈餘殖利率來自暴衝的 E">⚑</span></td></tr><tr>
+  <td class="tick">SKHY</td><td class="name">SKHY</td>
+  <td class="num">166.33</td>
+  <td class="num up">+0.40%</td>
+  <td><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 5.2｜數值極端，倒數出的殖利率意義薄弱">2.6</span><sup class="basis">T</sup><span class="pill aud" title="本益比數值極端">極端</span></td>
+  <td><span class="num up">38.46%</span></td></tr><tr>
+  <td class="tick">MRVL</td><td class="name">MRVL</td>
+  <td class="num">222.02</td>
+  <td class="num down">-0.07%</td>
+  <td><span class="num up">+57.0%</span><span class="devbar" style="width:56px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 35.6">48.0</span><sup class="basis">T</sup></td>
+  <td><span class="num down">2.08%</span></td></tr><tr>
+  <td class="tick">ET</td><td class="name">ET</td>
+  <td class="num">21.05</td>
+  <td class="num up">+1.40%</td>
+  <td><span class="num up">+17.3%</span><span class="devbar" style="width:28px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="forward 12.0">13.6</span><sup class="basis">T</sup></td>
+  <td><span class="num up">7.35%</span></td></tr><tr>
+  <td class="tick">SNOW</td><td class="name">SNOW</td>
+  <td class="num">328.92</td>
+  <td class="num down">-2.51%</td>
+  <td><span class="num up">+53.4%</span><span class="devbar" style="width:56px;background:var(--up)"></span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="tech-col"><span class="flat">—</span></td>
+  <td class="pe-col"><span class="num" title="無 trailing 資料">121.9</span><sup class="basis warnb">F</sup></td>
+  <td><span class="num down">0.82%</span></td></tr></tbody></table>
+</section>
+
+<section>
+  <div class="shead"><span class="eyebrow">貴金屬持倉</span></div>
+  <table>
+  <thead><tr><th>代號</th><th>名稱</th><th>股價</th><th>日變動</th>
+  <th>年線乖離</th><th>52W 高點 <sup class="basis">盤中</sup></th><th>距高點</th></tr></thead>
+  <tbody><tr>
+  <td class="tick">GLDM</td><td class="name">黃金 ETF MiniShares</td>
+  <td class="num">86.58</td>
+  <td class="num up">+0.62%</td>
+  <td><span class="num down">-2.5%</span><span class="devbar" style="width:4px;background:var(--down)"></span></td>
+  <td><span class="num">108.90</span></td>
+  <td><span class="num down">-20.5%</span></td></tr><tr>
+  <td class="tick">SIVR</td><td class="name">白銀 ETF 實物</td>
+  <td class="num">61.47</td>
+  <td class="num up">+0.49%</td>
+  <td><span class="num down">-8.8%</span><span class="devbar" style="width:14px;background:var(--down)"></span></td>
+  <td><span class="num">113.20</span></td>
+  <td><span class="num down">-45.7%</span></td></tr></tbody></table>
+  <div style="margin-top:10px;padding:10px 14px;background:var(--sheet);
+          border:1px solid var(--rule);display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">
+          <div><div class="eyebrow">金銀比</div>
+          <div class="num" style="font-size:21px;font-weight:500">68.2</div></div>
+          <div style="font-size:13px;color:var(--ink-2)">正常偏高區間。
+          黃金 $4,437 ÷ 白銀 $65.11</div></div>
+</section>
+
+<section>
+  <div class="shead"><span class="eyebrow">市場廣度</span></div>
+  <div class="breadth">
+    <div><div class="eyebrow">等權重減市值加權</div>
+      <div class="v num up">+0.22%</div></div>
+    <div style="flex:1;min-width:220px;font-size:13px;color:var(--ink-2)">
+      等權重領先，廣度健康。RSP +0.02% 對 SPY -0.20%。
+      等權重落後代表漲勢集中在少數權值股。</div>
+  </div></section>
+
+<section>
+  <div class="shead"><span class="eyebrow">Polymarket 預測市場</span></div>
+  <div style="background:var(--sheet);border:1px solid var(--rule);padding:14px">
+  <div style="margin-bottom:6px"><div class="eyebrow" style="margin:8px 0 4px">聯準會 / 利率</div><table style="font-size:13px"><thead><tr><th style="text-align:left">賭盤</th><th>YES 機率</th><th>交易量</th></tr></thead><tbody><tr><td style="text-align:left;font-size:12.5px">Will there be no change in Fed interest rates after September …</td><td class="num"><span class="num up">74%</span></td><td class="num" style="color:var(--ink-2)">$7.8M</td></tr><tr><td style="text-align:left;font-size:12.5px">Fed rate hike in 2026?</td><td class="num"><span class="num flat">46%</span></td><td class="num" style="color:var(--ink-2)">$7.5M</td></tr></tbody></table></div>
+  <div style="font-size:11px;color:var(--ink-2);margin-top:10px;border-top:1px solid var(--rule);padding-top:8px">
+  機率反映賭盤參與者共識，非事實預測。Polymarket 在美國無法交易，數據僅供研判。</div>
+  </div></section>
+
+<footer>
+  資料來源 直連 Yahoo v8 chart API，約 15 分鐘延遲，非即時報價。<br>
+  本益比一律以 <b>trailing（歷史）</b>為主軸，標 <sup class="basis">T</sup>；
+  無 trailing 才退回 forward，標 <sup class="basis warnb">F</sup>（已內含成長預期，會顯得較便宜）。
+  滑鼠移到數字上可看另一個基準。<br>
+  現金／超短債型 ETF 已排除於警示外；槓桿與期貨展期型 ETF 不產生乖離類警示（含結構性耗損），
+  但保留 MACD／Stochastic 短線訊號。<br>
+  每次抓取都會自動校驗本益比，需人工確認的檔位在 console 列出，表上標
+  <span class="pill aud">分歧</span> / <span class="pill aud">極端</span>。<br>
+  52 週高低點取自近一年<b>盤中</b> High／Low（非收盤價），已還原除權息。<br>
+  警示為自訂觀察門檻，非買賣訊號。所有投資決策請自行判斷並自負風險。<br>
+  門檻、ETF 分類集合與觀察清單可在 market_monitor_web.py 檔案上方的設定區修改。
+</footer>
+
+</div></body></html>

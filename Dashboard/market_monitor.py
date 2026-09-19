@@ -20,7 +20,7 @@ market_monitor.py — 個人化市場監控儀表板
     python market_monitor.py --csv        # 同時寫入 CSV 記錄
 
 注意:
-  - 資料來源為 yfinance,約有 15 分鐘延遲
+  - 資料來源為直連 Yahoo v8 chart API（免 yfinance 報價端點，避免其 401 卡死），約有 15 分鐘延遲
   - 警示為「值得關注的門檻」,非買賣訊號
   - FRED 總經數據需免費 API key (見下方 FRED_API_KEY)
 """
@@ -29,6 +29,7 @@ import argparse
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 # Windows: 啟用 ANSI 顏色支援，否則會顯示成 ←[91m 之類的亂碼
@@ -59,6 +60,7 @@ if _CA:
 try:
     import yfinance as yf
     import pandas as pd
+    import requests
 except ImportError:
     sys.exit("請先安裝套件:  pip install yfinance pandas requests")
 
@@ -406,117 +408,194 @@ def compute_technicals(df):
     }
 
 
-def _latest_price(t):
+# ── Yahoo Finance 資料層（直連 chart API，取代會卡住的 yfinance）────────────────
+# 背景：2026-09 起 Yahoo 的 v7/finance/quote 與 v10/quoteSummary 對未授權請求回
+# 401（需要 crumb cookie），yfinance 靠這兩個端點，於是在沙盒/一般環境下掛住 150s+
+# 才回空。但 v8/finance/chart 端點仍可匿名取值（回 OHLCV + regularMarketPrice），
+# 所以這裡改直連 chart，並加 fail-fast 逾時，不再讓引擎乾等。
+_YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
+HTTP_TIMEOUT = float(os.environ.get("YAHOO_TIMEOUT", "10"))  # 每次 request 秒數
+MAX_WORKERS = int(os.environ.get("YAHOO_WORKERS", "8"))       # 併發抓取數
+FUNDA_TIMEOUT = float(os.environ.get("YAHOO_FUNDA_TIMEOUT", "3"))  # 每檔本益比逾時秒數
+
+
+def _yahoo_chart(sym, rng="1y", interval="1d"):
+    """直連 Yahoo v8 chart 端點，回傳 (DataFrame, meta) 或 (None, 錯誤字串)。
+
+    DataFrame 含 Open/High/Low/Close/Volume，index 為時區感知 timestamp，
+    與 compute_technicals 期望一致。meta 為原始 dict（含 regularMarketPrice）。
+    失敗一律在 HTTP_TIMEOUT 內回傳，不 block。429/5xx 時快速重試一次，
+    降低併發抓取時 Yahoo 偶發 rate-limit 造成的漏檔。
     """
-    取得單檔標的的「最新價」與「前一交易收盤」。
-
-    優先使用 fast_info.lastPrice（盤中即時價 / 盤後最新成交），
-    其次 info.regularMarketPrice，最後退回 last_price fallback。
-    前一收盤用 fast_info.previousClose / info.regularMarketPreviousClose。
-    回傳 (price, previous_close) 或 (None, None)。
-    """
-    try:
-        tk = yf.Ticker(t)
-        fi = tk.fast_info
-        px = fi.get("lastPrice") or fi.get("last_price")
-        prev = fi.get("previousClose") or fi.get("regularMarketPreviousClose") or fi.get("previous_close")
-        if px is None or prev is None:
-            # 盤後/延遲時 fast_info 可能不全，改用 info
-            try:
-                info = tk.info
-                px = px or info.get("regularMarketPrice") or info.get("postMarketPrice") or info.get("currentPrice")
-                prev = prev or info.get("regularMarketPreviousClose") or info.get("previousClose")
-            except Exception:
-                pass
-        if px is None or float(px) <= 0:
-            return None, None
-        return float(px), float(prev) if prev else None
-    except Exception:
-        return None, None
-
-
-def fetch_market_data(tickers):
-    """抓取報價與 200 日均線。相容 yfinance 0.2.x 與 1.5.x。
-
-    修正「抓到前一天」：yfinance 日線對「最新交易日」的 Close 常回傳 NaN
-    （Open/High/Low/Volume 已有值）。此處改用逐檔 history 抓取，
-    並在最後一根 Close 為 NaN 時，以即時價（盤中價=現在、盤後價=最新收盤）
-    補上，避免 dropna 掉最新交易日而誤取前一天收盤。
-    """
-    out = {}
-    tickers = list(tickers)
-
-    for t in tickers:
+    url = _YAHOO_CHART_URL.format(sym=sym)
+    last_err = "no attempt"
+    for attempt in (0, 1):
         try:
-            try:
-                df = yf.Ticker(t).history(period="1y", interval="1d",
-                                          auto_adjust=True)
-            except Exception:
-                continue
-            if df is None or len(df) < 2 or "Close" not in df.columns:
-                continue
-
-            close = df["Close"].dropna()
-
-            # ── 最新交易日 Close 為 NaN 時，用即時價補上 ──
-            prev_override = None
-            if close is not None and len(close) and pd.isna(df["Close"].iloc[-1]):
-                live, prev_close = _latest_price(t)
-                if live is not None:
-                    df.loc[df.index[-1], "Close"] = live
-                    close = df["Close"].dropna()
-                    # 前一交易日收盤以 previousClose 為準，確保當日漲跌幅正確
-                    prev_override = prev_close
-
-            if close is None or len(close) < 2:
-                continue
-            last, prev = float(close.iloc[-1]), float(close.iloc[-2])
-            if prev_override:
-                prev = prev_override
-            ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
-
-            # 52 週高低：優先用「盤中」High/Low，資料缺漏才退回收盤價。
-            try:
-                hi_s = df["High"].dropna() if "High" in df else close
-                lo_s = df["Low"].dropna() if "Low" in df else close
-                high_52w = float(hi_s.max()) if len(hi_s) else float(close.max())
-                low_52w = float(lo_s.min()) if len(lo_s) else float(close.min())
-            except Exception:
-                high_52w, low_52w = float(close.max()), float(close.min())
-
-            rec = {
-                "price": last,
-                "chg_pct": (last - prev) / prev * 100 if prev else 0.0,
-                "ma200": ma200,
-                "ma200_dev": ((last - ma200) / ma200 * 100) if ma200 else None,
-                "high_52w": high_52w,
-                "low_52w": low_52w,
-                "asof": df.index[-1],
-            }
-            # 技術指標（需要 OHLC；指數類可能只有 Close，函式已容錯）
-            try:
-                rec["tech"] = compute_technicals(df)
-            except Exception:
-                rec["tech"] = None
-            out[t] = rec
-        except Exception:
+            r = requests.get(url, params={"range": rng, "interval": interval},
+                             headers=_YAHOO_HEADERS, timeout=HTTP_TIMEOUT)
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {str(e)[:80]}"
             continue
-    return out
+        if r.status_code in (429, 500, 502, 503, 504):
+            last_err = f"HTTP {r.status_code}"
+            time.sleep(0.3 * (attempt + 1))
+            continue
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code}"
+        try:
+            j = r.json()
+            c = (j.get("chart", {}).get("result") or [{}])[0]
+            ts = c.get("timestamp") or []
+            if not ts:
+                return None, (j.get("chart", {}).get("error") or {}).get("description", "no data")
+            q = (c.get("indicators", {}).get("quote") or [{}])[0] or {}
+            adj = c.get("indicators", {}).get("adjclose") or [{}]
+            adjclose = (adj[0].get("adjclose") if adj and adj[0] else None)
+            meta = c.get("meta", {})
+            idx = pd.to_datetime(ts, unit="s", utc=True)
+            df = pd.DataFrame({
+                "Open": q.get("open"), "High": q.get("high"),
+                "Low": q.get("low"), "Close": adjclose or q.get("close"),
+                "Volume": q.get("volume"),
+            }, index=idx)
+            df = df.replace(0, pd.NA).dropna(how="all")
+            return df, meta
+        except Exception as e:
+            return None, f"parse {type(e).__name__}: {str(e)[:80]}"
+    return None, last_err
+
+
+def _yahoo_fundamental(sym):
+    """抓單檔本益比（盈餘殖利率）。Yahoo quote/quoteSummary 端點已需 crumb（401），
+    yfinance .info 也因此會掛住。這裡用背景執行緒 + 硬逾時包住它，確保單檔絕不
+    超過 FUNDA_TIMEOUT 回傳 None。回傳 float（本益比）或 None。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    result = {}
+
+    def _work():
+        try:
+            info = yf.Ticker(sym).info
+            pe = info.get("forwardPE") or info.get("trailingPE")
+            result["pe"] = float(pe) if pe and pe > 0 else None
+        except Exception:
+            result["pe"] = None
+
+    ex = ThreadPoolExecutor(max_workers=1)
+    fut = ex.submit(_work)
+    try:
+        fut.result(timeout=FUNDA_TIMEOUT)
+    except Exception:
+        # 逾時或 yfinance 卡死：放棄這檔，不等它
+        ex.shutdown(wait=False)
+        return None
+    finally:
+        ex.shutdown(wait=False)
+    return result.get("pe")
 
 
 def fetch_fundamentals(tickers):
-    """抓取本益比,計算盈餘殖利率。速度較慢,失敗時靜默跳過。"""
+    """抓取本益比,計算盈餘殖利率。改 fail-fast：Yahoo quote/quoteSummary 已 401，
+    yfinance .info 亦會卡死，故每檔用 FUNDA_TIMEOUT 硬逾時 + 併發，迅速回 n/a，
+    不再像舊版一樣逐檔乾等 150s+。
+    """
     out = {}
-    for t in tickers:
-        try:
-            info = yf.Ticker(t).info
-            pe = info.get("forwardPE") or info.get("trailingPE")
+    tickers = list(tickers)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(_yahoo_fundamental, t): t for t in tickers}
+        for fut in as_completed(futs):
+            t = futs[fut]
+            try:
+                pe = fut.result()
+            except Exception:
+                pe = None
             out[t] = {
                 "pe": pe,
                 "earnings_yield": (100 / pe) if pe and pe > 0 else None,
             }
+    return out
+
+
+def _fetch_one(t):
+    """抓單檔：回傳 (ticker, rec) 或 (ticker, None)。rec 欄位同舊版 fetch_market_data。"""
+    try:
+        df, meta = _yahoo_chart(t)
+        if df is None or len(df) < 2:
+            return t, None
+        close = df["Close"].dropna()
+        if len(close) < 2:
+            return t, None
+
+        # 最新價：優先用 chart 即時價；盤後/延遲則退回最後一根 close
+        live = meta.get("regularMarketPrice")
+        last_close = float(close.iloc[-1])
+        if live and float(live) > 0:
+            last = float(live)
+        else:
+            last = last_close
+            live = None
+
+        # 前一交易日收盤：用歷史 close 倒數第二根（chart previousClose 不可靠）
+        prev = float(close.iloc[-2])
+
+        ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
+
+        # 52 週高低：優先用盤中 High/Low（含最新一根的即時價）
+        hi_s = df["High"].dropna() if "High" in df else close
+        lo_s = df["Low"].dropna() if "Low" in df else close
+        high_52w = float(hi_s.max()) if len(hi_s) else last
+        low_52w = float(lo_s.min()) if len(lo_s) else last
+
+        rec = {
+            "price": last,
+            "chg_pct": (last - prev) / prev * 100 if prev else 0.0,
+            "ma200": ma200,
+            "ma200_dev": ((last - ma200) / ma200 * 100) if ma200 else None,
+            "high_52w": high_52w,
+            "low_52w": low_52w,
+            "asof": df.index[-1],
+        }
+        try:
+            rec["tech"] = compute_technicals(df)
         except Exception:
-            out[t] = {"pe": None, "earnings_yield": None}
+            rec["tech"] = None
+        return t, rec
+    except Exception:
+        return t, None
+
+
+def fetch_market_data(tickers):
+    """抓取報價與 200 日均線。改直連 Yahoo v8 chart 端點（併發 + fail-fast）。
+
+    tickers 為可迭代代號。失敗的標的會被靜默跳過（回傳 dict 不含它）。
+    全部標的都會在 HTTP_TIMEOUT 內回傳，不再出現 150s+ 的 yfinance 卡死。
+    """
+    out = {}
+    tickers = list(tickers)
+    if not tickers:
+        return out
+    # 快速同步收集，避免併發時 stdout 交錯無法排錯
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(_fetch_one, t): t for t in tickers}
+        for fut in as_completed(futs):
+            t, rec = fut.result()
+            if rec is not None:
+                out[t] = rec
+    return out
+
+
+def fetch_fundamentals(tickers):
+    """抓取本益比,計算盈餘殖利率。改 fail-fast：quoteSummary 已 401，退回
+    yfinance .info（若可用），每檔不管結果如何都在短時間內回傳，不再卡死。
+    """
+    out = {}
+    for t in tickers:
+        pe = _yahoo_fundamental(t)
+        out[t] = {
+            "pe": pe,
+            "earnings_yield": (100 / pe) if pe and pe > 0 else None,
+        }
     return out
 
 
@@ -630,7 +709,7 @@ def check_alerts(macro, stocks):
 def render(macro, stocks, funda, tyx, fred_data, watchlist):
     print("\n" + "=" * 78)
     print(color(f"  市場監控儀表板   {datetime.now():%Y-%m-%d %H:%M:%S}", "bold"))
-    print(color("  資料來源 yfinance,約 15 分鐘延遲", "gray"))
+    print(color("  資料來源 Yahoo v8 chart API（直連）,約 15 分鐘延遲", "gray"))
     print("=" * 78)
 
     # 總經
